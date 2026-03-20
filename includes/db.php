@@ -1,9 +1,16 @@
 <?php
 // Conexión PDO para VirtualGaming
+/*
 $host = 'localhost';
 $db   = 'u680460687_vgaming';
 $user = 'u680460687_vgaming';
 $pass = 'LnGxQW:b0Y';
+$charset = 'utf8mb4';
+*/
+$host = 'localhost';
+$db   = 'virtualgaming';
+$user = 'root';
+$pass = '';
 $charset = 'utf8mb4';
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
 $options = [
