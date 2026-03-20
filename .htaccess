@@ -1,0 +1,23 @@
+# Friendly game URLs by ID: /juego/123 -> game.php?id=123
+RewriteRule ^juego/(\d+)/?$ game.php?id=$1 [L,QSA]
+RewriteEngine On
+
+# Allow direct access to real files and folders
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Admin friendly URLs: /admin/seccion -> admin.php?seccion=seccion
+RewriteRule ^admin/([a-zA-Z0-9_-]+)?$ admin.php?seccion=$1 [QSA,L]
+# Redirect /admin to /admin/juegos by default
+RewriteRule ^admin/?$ admin.php?seccion=juegos [QSA,L]
+
+# Friendly game URLs: /tienda/slug -> game.php?slug=slug
+RewriteRule ^tienda/([a-zA-Z0-9-]+)/?$ game.php?slug=$1 [L,QSA]
+
+# Friendly list URLs
+RewriteRule ^populares/?$ populares.php [L,QSA]
+RewriteRule ^juegos/?$ juegos.php [L,QSA]
+
+# Logout amigable
+RewriteRule ^logout/?$ logout.php [L,QSA]

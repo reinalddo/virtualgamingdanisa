@@ -1,0 +1,11 @@
+Options -Indexes
+RewriteEngine On
+# Dashboard amigable
+RewriteRule ^dashboard$ ../admin.php?seccion=dashboard [L,QSA]
+RewriteRule ^usuarios$ ../admin.php?seccion=usuarios [L,QSA]
+RewriteRule ^cupones$ ../admin.php?seccion=cupones [L,QSA]
+RewriteRule ^configuracion$ ../admin.php?seccion=configuracion [L,QSA]
+RewriteRule ^monedas$ monedas.php [L,QSA]
+RewriteRule ^juegos$ juegos.php [L,QSA]
+RewriteRule ^paquetes/?([0-9]*)$ paquetes.php [L,QSA]
+RewriteRule ^pedidos$ pedidos.php [L,QSA]

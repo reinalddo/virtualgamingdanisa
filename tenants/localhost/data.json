@@ -1,0 +1,163 @@
+{
+  "tenant": {
+    "slug": "localhost"
+  },
+  "brand": {
+    "name": "TVirtualGaming Local"
+  },
+  "database": {
+    "host": "localhost",
+    "name": "tvirtualgaming",
+    "user": "root",
+    "password": ""
+  },
+  "banners": [
+    {
+      "image": "/tenants/localhost/assets/img/banner-1.jpg",
+      "label": "promo activa",
+      "title": "Recarga con cupon y ahorra hoy",
+      "subtitle": "Entrega inmediata y soporte 24/7",
+      "accent": "cyan"
+    },
+    {
+      "image": "/tenants/localhost/assets/img/banner-2.jpg",
+      "label": "bienvenida",
+      "title": "+10% en tu primera compra",
+      "subtitle": "Usa el codigo START10",
+      "accent": "emerald"
+    },
+    {
+      "image": "/tenants/localhost/assets/img/banner-3.jpg",
+      "label": "bonos",
+      "title": "Paquetes exclusivos cada semana",
+      "subtitle": "Activa alertas y no te los pierdas",
+      "accent": "cyan"
+    }
+  ],
+  "featured": {
+    "image": "/tenants/localhost/assets/img/featured-1.jpg",
+    "label": "destacado",
+    "title": "Nuevas ofertas multitienda",
+    "subtitle": "Se actualiza desde el panel admin"
+  },
+  "games": [
+    {
+      "slug": "roblox",
+      "title": "Roblox Coins",
+      "price": "12.00",
+      "image": "/tenants/localhost/assets/img/game-roblox.jpg",
+      "tags": ["Global", "Entrega inmediata", "Soporte 24/7"],
+      "popular": true,
+      "packs": [
+        {"amount": "80", "label": "80 Coins", "price": "10.00"},
+        {"amount": "160", "label": "160 Coins", "price": "18.50"},
+        {"amount": "400", "label": "400 Coins", "price": "42.00"},
+        {"amount": "800", "label": "800 Coins", "price": "78.00"},
+        {"amount": "1700", "label": "1700 Coins", "price": "149.00"},
+        {"amount": "4500", "label": "4500 Coins", "price": "359.00"}
+      ]
+    },
+    {
+      "slug": "free-fire",
+      "title": "Free Fire",
+      "price": "8.00",
+      "image": "/tenants/localhost/assets/img/game-freefire.jpg",
+      "tags": ["Global", "Entrega inmediata", "Soporte 24/7"],
+      "popular": true,
+      "packs": [
+        {"amount": "110", "label": "110 Diamantes", "price": "12.00"},
+        {"amount": "220", "label": "220 Diamantes", "price": "21.50"},
+        {"amount": "520", "label": "520 Diamantes", "price": "49.00"},
+        {"amount": "1060", "label": "1060 Diamantes", "price": "88.00"},
+        {"amount": "2180", "label": "2180 Diamantes", "price": "169.00"},
+        {"amount": "5600", "label": "5600 Diamantes", "price": "399.00"}
+      ]
+    },
+    {
+      "slug": "pubg",
+      "title": "PUBG UC",
+      "price": "9.50",
+      "image": "/tenants/localhost/assets/img/game-pubg.jpg",
+      "tags": ["Global", "Entrega inmediata", "Soporte 24/7"],
+      "popular": true,
+      "packs": [
+        {"amount": "60", "label": "60 UC", "price": "9.50"},
+        {"amount": "180", "label": "180 UC", "price": "26.00"},
+        {"amount": "325", "label": "325 UC", "price": "45.00"},
+        {"amount": "660", "label": "660 UC", "price": "82.00"},
+        {"amount": "1800", "label": "1800 UC", "price": "215.00"},
+        {"amount": "3850", "label": "3850 UC", "price": "420.00"}
+      ]
+    },
+    {
+      "slug": "gift-cards",
+      "title": "Gift Cards",
+      "price": "15.00",
+      "image": "/tenants/localhost/assets/img/game-gift.jpg",
+      "tags": ["Canje inmediato", "Digital", "Soporte 24/7"],
+      "popular": true,
+      "packs": [
+        {"amount": "10", "label": "Gift Card 10", "price": "15.00"},
+        {"amount": "25", "label": "Gift Card 25", "price": "35.00"},
+        {"amount": "50", "label": "Gift Card 50", "price": "65.00"},
+        {"amount": "100", "label": "Gift Card 100", "price": "120.00"}
+      ]
+    },
+    {
+      "slug": "call-of-duty",
+      "title": "Call of Duty",
+      "price": "11.00",
+      "image": "/tenants/localhost/assets/img/game-cod.jpg",
+      "tags": ["Global", "Entrega inmediata", "Soporte 24/7"],
+      "popular": false,
+      "packs": [
+        {"amount": "80", "label": "80 CP", "price": "11.00"},
+        {"amount": "420", "label": "420 CP", "price": "52.00"},
+        {"amount": "880", "label": "880 CP", "price": "95.00"},
+        {"amount": "2400", "label": "2400 CP", "price": "255.00"}
+      ]
+    },
+    {
+      "slug": "fortnite",
+      "title": "Fortnite",
+      "price": "13.50",
+      "image": "/tenants/localhost/assets/img/game-fortnite.jpg",
+      "tags": ["Global", "Entrega inmediata", "Soporte 24/7"],
+      "popular": false,
+      "packs": [
+        {"amount": "1000", "label": "1000 V-Bucks", "price": "13.50"},
+        {"amount": "2800", "label": "2800 V-Bucks", "price": "32.00"},
+        {"amount": "5000", "label": "5000 V-Bucks", "price": "52.00"},
+        {"amount": "13500", "label": "13500 V-Bucks", "price": "120.00"}
+      ]
+    },
+    {
+      "slug": "valorant",
+      "title": "Valorant",
+      "price": "10.00",
+      "image": "/tenants/localhost/assets/img/game-valorant.jpg",
+      "tags": ["Global", "Entrega inmediata", "Soporte 24/7"],
+      "popular": false,
+      "packs": [
+        {"amount": "420", "label": "420 VP", "price": "10.00"},
+        {"amount": "1000", "label": "1000 VP", "price": "21.00"},
+        {"amount": "2050", "label": "2050 VP", "price": "41.00"},
+        {"amount": "5350", "label": "5350 VP", "price": "95.00"}
+      ]
+    },
+    {
+      "slug": "garena",
+      "title": "Garena Shells",
+      "price": "7.00",
+      "image": "/tenants/localhost/assets/img/game-garena.jpg",
+      "tags": ["Global", "Entrega inmediata", "Soporte 24/7"],
+      "popular": false,
+      "packs": [
+        {"amount": "100", "label": "100 Shells", "price": "7.00"},
+        {"amount": "210", "label": "210 Shells", "price": "13.50"},
+        {"amount": "525", "label": "525 Shells", "price": "30.00"},
+        {"amount": "1100", "label": "1100 Shells", "price": "58.00"}
+      ]
+    }
+  ]
+}
