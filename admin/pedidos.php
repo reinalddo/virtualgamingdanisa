@@ -31,6 +31,11 @@ function order_meta_value($value): string {
   return $text !== '' ? $text : '—';
 }
 
+function order_normalize_date_query($value): string {
+  $date = trim((string) $value);
+  return preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 ? $date : '';
+}
+
 function order_search_index(array $order): string {
   $parts = [
     '#' . ($order['id'] ?? ''),
@@ -80,6 +85,31 @@ function order_status_button_style(string $status, bool $isActive = false): stri
   $shadow = $isActive ? '0 0 12px ' . $color . '66' : 'none';
 
   return 'border:1px solid ' . $color . '; background:' . $background . '; color:' . $textColor . '; box-shadow:' . $shadow . ';';
+}
+
+$requestedOrderId = max(0, (int) ($_GET['pedido'] ?? 0));
+$initialOrderSearch = trim((string) ($_GET['order_search'] ?? ''));
+if ($requestedOrderId > 0 && $initialOrderSearch === '') {
+  $initialOrderSearch = (string) $requestedOrderId;
+}
+$initialDateFrom = order_normalize_date_query($_GET['date_from'] ?? '');
+$initialDateTo = order_normalize_date_query($_GET['date_to'] ?? '');
+$initialTab = trim((string) ($_GET['tab'] ?? ''));
+if (!in_array($initialTab, $statuses, true)) {
+  $initialTab = '';
+}
+if ($requestedOrderId > 0 && $initialTab === '') {
+  foreach ($ordersByStatus as $statusKey => $statusOrders) {
+    foreach ($statusOrders as $statusOrder) {
+      if ((int) ($statusOrder['id'] ?? 0) === $requestedOrderId) {
+        $initialTab = $statusKey;
+        break 2;
+      }
+    }
+  }
+}
+if ($initialTab === '') {
+  $initialTab = 'pendiente';
 }
 ?>
 <main class="container-lg mt-5 mb-5 px-2">
@@ -150,6 +180,10 @@ function order_status_button_style(string $status, bool $isActive = false): stri
     }
     .order-status-btn:not(:disabled):active {
       transform: scale(0.98);
+    }
+    .order-target-highlight {
+      border-color: #00ffb3 !important;
+      box-shadow: 0 0 0 2px rgba(0, 255, 179, 0.2), 0 0 24px rgba(0, 255, 179, 0.32) !important;
     }
   </style>
   <div class="row mb-4">
@@ -224,7 +258,7 @@ function order_status_button_style(string $status, bool $isActive = false): stri
               </thead>
               <tbody id="table-body-<?= $st ?>">
                 <?php foreach ($list as $order): ?>
-                  <tr data-order-row="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; color:#fff;">
+                  <tr id="pedido-<?= $order['id'] ?>" data-order-row="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; color:#fff;">
                     <td style="background:#181f2a; color:#00fff7;">
                       <div style="font-weight:bold;">#<?= $order['id'] ?></div>
                       <div style="color:#b2f6ff; margin-top:0.2rem;"><?= htmlspecialchars($order['creado_en']) ?></div>
@@ -268,7 +302,7 @@ function order_status_button_style(string $status, bool $isActive = false): stri
           <!-- Mobile Cards -->
           <div id="cards-<?= $st ?>" class="d-block d-md-none" style="margin-top:1.5rem;">
             <?php foreach ($list as $order): ?>
-              <div data-order-card="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem; color:#00fff7; margin-bottom:1.5rem;">
+              <div id="pedido-card-<?= $order['id'] ?>" data-order-card="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem; color:#00fff7; margin-bottom:1.5rem;">
                 <div style="display:flex; align-items:center; justify-content:space-between;">
                   <div style="font-weight:bold; font-size:1.1em; color:#00fff7;">#<?= $order['id'] ?></div>
                   <div style="font-size:0.95em; color:#b2f6ff;"><?= htmlspecialchars($order['creado_en']) ?></div>
@@ -321,7 +355,12 @@ function order_status_button_style(string $status, bool $isActive = false): stri
 // Forzar ocultamiento inicial y mostrar solo el tab activo
 (function(){
   // Detectar tab inicial
-  var initialTab = localStorage.getItem('tvg_tab') || 'pendiente';
+  var serverInitialTab = <?php echo json_encode($initialTab, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  var initialTab = serverInitialTab || localStorage.getItem('tvg_tab') || 'pendiente';
+  var serverInitialSearch = <?php echo json_encode($initialOrderSearch, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  var serverDateFrom = <?php echo json_encode($initialDateFrom, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  var serverDateTo = <?php echo json_encode($initialDateTo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  var targetOrderId = <?php echo json_encode($requestedOrderId); ?>;
   window.initialTab = initialTab;
   // Filtro de rango de fecha
   const dateForm = document.getElementById('date-filter-form');
@@ -398,6 +437,20 @@ function order_status_button_style(string $status, bool $isActive = false): stri
     updateTabCounts();
   }
 
+  function highlightTargetOrder() {
+    if (!targetOrderId) {
+      return;
+    }
+    const desktopTarget = document.querySelector(`[data-order-row="${targetOrderId}"]`);
+    const mobileTarget = document.querySelector(`[data-order-card="${targetOrderId}"]`);
+    const target = window.innerWidth >= 768 ? desktopTarget : mobileTarget;
+    if (!target || target.style.display === 'none') {
+      return;
+    }
+    target.classList.add('order-target-highlight');
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
   dateForm.addEventListener('submit', function(e){
     e.preventDefault();
     applyFilters();
@@ -447,8 +500,20 @@ function order_status_button_style(string $status, bool $isActive = false): stri
     }
     localStorage.setItem('tvg_tab', tab);
   }
-  const initial = localStorage.getItem('tvg_tab') || 'pendiente';
+  if (dateFrom && serverDateFrom) {
+    dateFrom.value = serverDateFrom;
+  }
+  if (dateTo && serverDateTo) {
+    dateTo.value = serverDateTo;
+  }
+  if (orderSearch && serverInitialSearch) {
+    orderSearch.value = serverInitialSearch;
+  }
+
+  const initial = initialTab || localStorage.getItem('tvg_tab') || 'pendiente';
   showTab(initial);
+  applyFilters();
+  setTimeout(highlightTargetOrder, 120);
   tabs.forEach(btn => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
 
   function moveOrder(id, newStatus){

@@ -58,6 +58,39 @@ function admin_normalize_date_filter($value): ?string {
     return preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 ? $date : null;
 }
 
+function admin_normalize_positive_page($value): int {
+    $page = (int) $value;
+    return $page > 0 ? $page : 1;
+}
+
+function admin_normalize_per_page($value, int $default = 15): int {
+    $perPage = (int) $value;
+    return in_array($perPage, [15, 30, 50], true) ? $perPage : $default;
+}
+
+function admin_normalize_sort_direction($value, string $default = 'desc'): string {
+    $direction = strtolower(trim((string) $value));
+    return in_array($direction, ['asc', 'desc'], true) ? $direction : $default;
+}
+
+function admin_normalize_movement_sort_column($value): string {
+    $column = trim((string) $value);
+    $allowed = ['referencia', 'descripcion', 'fecha_movimiento', 'monto', 'moneda'];
+    return in_array($column, $allowed, true) ? $column : 'fecha_movimiento';
+}
+
+function admin_build_url(string $path, array $query = []): string {
+    $query = array_filter($query, static function ($value) {
+        return $value !== null && $value !== '';
+    });
+
+    if (empty($query)) {
+        return $path;
+    }
+
+    return $path . '?' . http_build_query($query);
+}
+
 require_once __DIR__ . '/includes/influencer_coupons.php';
 
 switch ($seccion) {
@@ -1175,25 +1208,187 @@ require_once __DIR__ . '/includes/header.php';
                 break;
             case 'movimientos':
                 require_once __DIR__ . '/includes/db.php';
+                $movementReference = trim((string) ($_GET['referencia'] ?? ''));
+                $movementDateFrom = admin_normalize_date_filter($_GET['fecha_desde'] ?? null);
+                $movementDateTo = admin_normalize_date_filter($_GET['fecha_hasta'] ?? null);
+                $movementCurrency = strtoupper(trim((string) ($_GET['moneda'] ?? '')));
+                $movementSort = admin_normalize_movement_sort_column($_GET['orden'] ?? 'fecha_movimiento');
+                $movementDirection = admin_normalize_sort_direction($_GET['direccion'] ?? 'desc');
+                $movementPage = admin_normalize_positive_page($_GET['pagina'] ?? 1);
+                $movementPerPage = admin_normalize_per_page($_GET['por_pagina'] ?? 15);
+                if ($movementCurrency !== '' && preg_match('/^[A-Z0-9_-]{1,20}$/', $movementCurrency) !== 1) {
+                    $movementCurrency = '';
+                }
+
+                $currencies = $pdo->query("SELECT DISTINCT moneda FROM movimientos WHERE moneda IS NOT NULL AND moneda <> '' ORDER BY moneda ASC")->fetchAll(PDO::FETCH_COLUMN);
+
+                $movementBaseSql = ' FROM movimientos m LEFT JOIN pedidos p ON p.id = m.pedido_id WHERE 1=1';
+                $movementParams = [];
+                if ($movementReference !== '') {
+                    $movementBaseSql .= ' AND m.referencia LIKE ?';
+                    $movementParams[] = '%' . $movementReference . '%';
+                }
+                if ($movementDateFrom !== null) {
+                    $movementBaseSql .= ' AND DATE(m.fecha_movimiento) >= ?';
+                    $movementParams[] = $movementDateFrom;
+                }
+                if ($movementDateTo !== null) {
+                    $movementBaseSql .= ' AND DATE(m.fecha_movimiento) <= ?';
+                    $movementParams[] = $movementDateTo;
+                }
+                if ($movementCurrency !== '') {
+                    $movementBaseSql .= ' AND m.moneda = ?';
+                    $movementParams[] = $movementCurrency;
+                }
+
+                $movementCountStmt = $pdo->prepare('SELECT COUNT(*)' . $movementBaseSql);
+                $movementCountStmt->execute($movementParams);
+                $movementTotal = (int) $movementCountStmt->fetchColumn();
+                $movementTotalPages = max(1, (int) ceil($movementTotal / $movementPerPage));
+                if ($movementPage > $movementTotalPages) {
+                    $movementPage = $movementTotalPages;
+                }
+                $movementOffset = ($movementPage - 1) * $movementPerPage;
+
+                $movementSortColumns = [
+                    'referencia' => 'm.referencia',
+                    'descripcion' => 'm.descripcion',
+                    'fecha_movimiento' => 'm.fecha_movimiento',
+                    'monto' => 'm.monto',
+                    'moneda' => 'm.moneda',
+                ];
+                $movementOrderBy = $movementSortColumns[$movementSort] ?? 'm.fecha_movimiento';
+                $movementsSql = 'SELECT m.referencia, m.descripcion, m.fecha_movimiento, m.monto, m.moneda, m.pedido_id, p.estado AS pedido_estado'
+                    . $movementBaseSql
+                    . ' ORDER BY ' . $movementOrderBy . ' ' . strtoupper($movementDirection) . ', m.fecha_movimiento DESC, m.referencia DESC'
+                    . ' LIMIT ' . (int) $movementPerPage . ' OFFSET ' . (int) $movementOffset;
+                $movementsStmt = $pdo->prepare($movementsSql);
+                $movementsStmt->execute($movementParams);
+                $movimientos = $movementsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $movementBaseQuery = [
+                    'referencia' => $movementReference,
+                    'fecha_desde' => $movementDateFrom,
+                    'fecha_hasta' => $movementDateTo,
+                    'moneda' => $movementCurrency,
+                    'orden' => $movementSort,
+                    'direccion' => $movementDirection,
+                    'por_pagina' => $movementPerPage,
+                ];
+                $movementSortLabels = [
+                    'referencia' => 'Referencia',
+                    'descripcion' => 'Descripción',
+                    'fecha_movimiento' => 'Fecha movimiento',
+                    'monto' => 'Monto',
+                    'moneda' => 'Moneda',
+                ];
+                $movementRangeStart = $movementTotal > 0 ? $movementOffset + 1 : 0;
+                $movementRangeEnd = $movementTotal > 0 ? min($movementOffset + count($movimientos), $movementTotal) : 0;
+
                 echo '<h2 class="display-6 fw-bold text-info mb-3">Movimientos Bancarios</h2>';
                 echo '<p class="text-secondary mb-4">Listado de movimientos registrados en la tabla movimientos.</p>';
 
-                $movimientos = $pdo->query('SELECT referencia, descripcion, fecha_movimiento, monto, moneda FROM movimientos ORDER BY fecha_movimiento DESC, referencia DESC')->fetchAll(PDO::FETCH_ASSOC);
+                echo '<form method="GET" action="/admin/movimientos" class="row g-3 mb-4 align-items-end" style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1.5rem;">';
+                echo '<div class="col-12 col-lg-4">';
+                echo '<label class="form-label" style="color:#00fff7;">Buscar por referencia</label>';
+                echo '<input type="search" name="referencia" value="' . htmlspecialchars($movementReference) . '" class="form-control" placeholder="Ej. 5398344305" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                echo '</div>';
+                echo '<div class="col-6 col-lg-2">';
+                echo '<label class="form-label" style="color:#00fff7;">Desde</label>';
+                echo '<input type="date" name="fecha_desde" value="' . htmlspecialchars((string) ($movementDateFrom ?? '')) . '" class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                echo '</div>';
+                echo '<div class="col-6 col-lg-2">';
+                echo '<label class="form-label" style="color:#00fff7;">Hasta</label>';
+                echo '<input type="date" name="fecha_hasta" value="' . htmlspecialchars((string) ($movementDateTo ?? '')) . '" class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                echo '</div>';
+                echo '<div class="col-12 col-lg-2">';
+                echo '<label class="form-label" style="color:#00fff7;">Moneda</label>';
+                echo '<select name="moneda" class="form-select" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                echo '<option value="">Todas</option>';
+                foreach ($currencies as $currencyOption) {
+                    $currencyOption = trim((string) $currencyOption);
+                    if ($currencyOption === '') {
+                        continue;
+                    }
+                    $selected = $movementCurrency === strtoupper($currencyOption) ? ' selected' : '';
+                    echo '<option value="' . htmlspecialchars($currencyOption) . '"' . $selected . '>' . htmlspecialchars($currencyOption) . '</option>';
+                }
+                echo '</select>';
+                echo '</div>';
+                echo '<div class="col-6 col-lg-2">';
+                echo '<label class="form-label" style="color:#00fff7;">Ordenar por</label>';
+                echo '<select name="orden" class="form-select" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                foreach ($movementSortLabels as $sortKey => $sortLabel) {
+                    $selected = $movementSort === $sortKey ? ' selected' : '';
+                    echo '<option value="' . htmlspecialchars($sortKey) . '"' . $selected . '>' . htmlspecialchars($sortLabel) . '</option>';
+                }
+                echo '</select>';
+                echo '</div>';
+                echo '<div class="col-6 col-lg-2">';
+                echo '<label class="form-label" style="color:#00fff7;">Dirección</label>';
+                echo '<select name="direccion" class="form-select" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                echo '<option value="desc"' . ($movementDirection === 'desc' ? ' selected' : '') . '>Descendente</option>';
+                echo '<option value="asc"' . ($movementDirection === 'asc' ? ' selected' : '') . '>Ascendente</option>';
+                echo '</select>';
+                echo '</div>';
+                echo '<div class="col-6 col-lg-2">';
+                echo '<label class="form-label" style="color:#00fff7;">Por página</label>';
+                echo '<select name="por_pagina" class="form-select" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                foreach ([15, 30, 50] as $perPageOption) {
+                    $selected = $movementPerPage === $perPageOption ? ' selected' : '';
+                    echo '<option value="' . $perPageOption . '"' . $selected . '>' . $perPageOption . '</option>';
+                }
+                echo '</select>';
+                echo '</div>';
+                echo '<div class="col-12 col-lg-2 d-flex gap-2">';
+                echo '<button type="submit" class="btn btn-info flex-fill fw-bold" style="background:#00fff7; color:#181f2a; border:none; box-shadow:0 0 8px #00fff7;">Filtrar</button>';
+                echo '<a href="/admin/movimientos" class="btn btn-outline-info flex-fill fw-bold" style="border:1px solid #00fff7; color:#00fff7; background:#181f2a;">Limpiar</a>';
+                echo '</div>';
+                echo '</form>';
 
-                if (count($movimientos) === 0) {
+                echo '<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">';
+                echo '<div class="text-info fw-semibold">Resultados: ' . $movementTotal . '</div>';
+                echo '<div class="text-secondary small">Orden actual: ' . htmlspecialchars($movementSortLabels[$movementSort] ?? 'Fecha movimiento') . ' (' . strtoupper($movementDirection) . ')</div>';
+                if ($movementReference !== '' || $movementDateFrom !== null || $movementDateTo !== null || $movementCurrency !== '') {
+                    echo '<div class="text-secondary small">Filtros activos aplicados a la tabla de movimientos.</div>';
+                }
+                echo '</div>';
+
+                if ($movementTotal === 0) {
                     echo '<div class="text-secondary">No hay movimientos registrados.</div>';
                     break;
                 }
+
+                echo '<div class="mb-3" style="background:linear-gradient(135deg, rgba(0,255,247,0.14), rgba(0,255,179,0.08)); border:1px solid rgba(0,255,247,0.35); border-radius:16px; padding:1rem 1.1rem; box-shadow:0 0 18px rgba(0,255,247,0.12);">';
+                echo '<div class="d-flex justify-content-between align-items-center flex-wrap gap-2">';
+                echo '<div>';
+                echo '<div class="text-uppercase small fw-semibold" style="color:#7dd3fc; letter-spacing:0.08em;">Rango visible</div>';
+                echo '<div class="fw-bold" style="color:#00fff7; font-size:1.05rem;">Mostrando ' . $movementRangeStart . ' - ' . $movementRangeEnd . ' de ' . $movementTotal . '</div>';
+                echo '</div>';
+                echo '<div class="text-end">';
+                echo '<div class="text-uppercase small fw-semibold" style="color:#7dd3fc; letter-spacing:0.08em;">Paginación</div>';
+                echo '<div class="fw-semibold" style="color:#b2f6ff;">Página ' . $movementPage . ' de ' . $movementTotalPages . '</div>';
+                echo '</div>';
+                echo '</div>';
+                echo '</div>';
 
                 echo '<div class="table-responsive mb-4 d-none d-md-block" style="background:#10141a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem;">';
                 echo '<table class="table align-middle mb-0" style="background:#181f2a; color:#00fff7; border-radius:12px;">';
                 echo '<thead style="background:#181f2a; color:#00fff7; border-bottom:2px solid #00fff7;">';
                 echo '<tr>';
-                echo '<th style="color:#00fff7; background:#181f2a; min-width:160px;">Referencia</th>';
-                echo '<th style="color:#00fff7; background:#181f2a; min-width:260px;">Descripción</th>';
-                echo '<th style="color:#00fff7; background:#181f2a; min-width:180px;">Fecha movimiento</th>';
-                echo '<th style="color:#00fff7; background:#181f2a; min-width:130px;">Monto</th>';
-                echo '<th style="color:#00fff7; background:#181f2a; min-width:90px;">Moneda</th>';
+                foreach (['referencia', 'descripcion', 'fecha_movimiento', 'monto', 'moneda'] as $movementColumnKey) {
+                    $columnDirection = $movementSort === $movementColumnKey && $movementDirection === 'asc' ? 'desc' : 'asc';
+                    $columnArrow = $movementSort === $movementColumnKey ? ($movementDirection === 'asc' ? ' ↑' : ' ↓') : '';
+                    $columnQuery = $movementBaseQuery;
+                    $columnQuery['orden'] = $movementColumnKey;
+                    $columnQuery['direccion'] = $columnDirection;
+                    $columnQuery['pagina'] = 1;
+                    $minWidth = $movementColumnKey === 'descripcion' ? '260px' : ($movementColumnKey === 'fecha_movimiento' ? '180px' : ($movementColumnKey === 'monto' ? '130px' : ($movementColumnKey === 'moneda' ? '90px' : '160px')));
+                    echo '<th style="color:#00fff7; background:#181f2a; min-width:' . $minWidth . ';">';
+                    echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $columnQuery)) . '" style="color:#00fff7; text-decoration:none; display:inline-flex; align-items:center; gap:0.35rem;">' . htmlspecialchars($movementSortLabels[$movementColumnKey]) . '<span style="opacity:0.9;">' . htmlspecialchars($columnArrow) . '</span></a>';
+                    echo '</th>';
+                }
+                echo '<th style="color:#00fff7; background:#181f2a; min-width:170px;">Pedido relacionado</th>';
                 echo '</tr>';
                 echo '</thead>';
                 echo '<tbody>';
@@ -1201,12 +1396,23 @@ require_once __DIR__ . '/includes/header.php';
                 $rowAlt = false;
                 foreach ($movimientos as $movimiento) {
                     $rowStyle = $rowAlt ? 'background:#151a24;' : 'background:#181f2a;';
+                    $relatedOrderId = (int) ($movimiento['pedido_id'] ?? 0);
+                    $relatedOrderStatus = trim((string) ($movimiento['pedido_estado'] ?? ''));
+                    $relatedTab = in_array($relatedOrderStatus, ['pendiente', 'pagado', 'enviado', 'cancelado'], true) ? $relatedOrderStatus : 'pendiente';
+                    $relatedOrderHref = '/admin/pedidos?pedido=' . $relatedOrderId . '&order_search=' . urlencode((string) $relatedOrderId) . '&tab=' . urlencode($relatedTab) . '#pedido-' . $relatedOrderId;
                     echo '<tr style="' . $rowStyle . ' color:#fff;">';
                     echo '<td style="background:#181f2a; color:#00fff7; font-weight:600;">' . htmlspecialchars(admin_display_value($movimiento['referencia'] ?? null)) . '</td>';
                     echo '<td style="background:#181f2a; color:#fff;">' . htmlspecialchars(admin_display_value($movimiento['descripcion'] ?? null)) . '</td>';
                     echo '<td style="background:#181f2a; color:#b2f6ff;">' . htmlspecialchars(admin_display_value($movimiento['fecha_movimiento'] ?? null)) . '</td>';
                     echo '<td style="background:#181f2a; color:#00ffb3; font-weight:bold;">' . htmlspecialchars(admin_format_money($movimiento['monto'] ?? 0)) . '</td>';
                     echo '<td style="background:#181f2a; color:#b2f6ff; font-weight:600;">' . htmlspecialchars(admin_display_value($movimiento['moneda'] ?? null)) . '</td>';
+                    echo '<td style="background:#181f2a; color:#b2f6ff;">';
+                    if ($relatedOrderId > 0) {
+                        echo '<a href="' . htmlspecialchars($relatedOrderHref) . '" class="btn btn-outline-info btn-sm fw-semibold" style="border-color:#00fff7; color:#00fff7; background:#181f2a;">Ver pedido #' . htmlspecialchars((string) $relatedOrderId) . '</a>';
+                    } else {
+                        echo '<span class="text-secondary">Sin pedido</span>';
+                    }
+                    echo '</td>';
                     echo '</tr>';
                     $rowAlt = !$rowAlt;
                 }
@@ -1216,6 +1422,10 @@ require_once __DIR__ . '/includes/header.php';
 
                 echo '<div class="d-block d-md-none">';
                 foreach ($movimientos as $movimiento) {
+                    $relatedOrderId = (int) ($movimiento['pedido_id'] ?? 0);
+                    $relatedOrderStatus = trim((string) ($movimiento['pedido_estado'] ?? ''));
+                    $relatedTab = in_array($relatedOrderStatus, ['pendiente', 'pagado', 'enviado', 'cancelado'], true) ? $relatedOrderStatus : 'pendiente';
+                    $relatedOrderHref = '/admin/pedidos?pedido=' . $relatedOrderId . '&order_search=' . urlencode((string) $relatedOrderId) . '&tab=' . urlencode($relatedTab) . '#pedido-' . $relatedOrderId;
                     echo '<div style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem; color:#00fff7; margin-bottom:1rem;">';
                     echo '<div style="display:grid; grid-template-columns:1fr; gap:0.75rem;">';
                     echo '<div style="padding-bottom:0.6rem; border-bottom:1px solid rgba(0,255,247,0.18);">';
@@ -1238,10 +1448,55 @@ require_once __DIR__ . '/includes/header.php';
                     echo '<div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:#7dd3fc;">Moneda</div>';
                     echo '<div style="color:#b2f6ff; font-weight:600;">' . htmlspecialchars(admin_display_value($movimiento['moneda'] ?? null)) . '</div>';
                     echo '</div>';
+                    echo '<div style="padding-top:0.4rem;">';
+                    echo '<div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:#7dd3fc; margin-bottom:0.4rem;">Pedido relacionado</div>';
+                    if ($relatedOrderId > 0) {
+                        echo '<a href="' . htmlspecialchars($relatedOrderHref) . '" class="btn btn-outline-info btn-sm fw-semibold" style="border-color:#00fff7; color:#00fff7; background:#181f2a;">Ver pedido #' . htmlspecialchars((string) $relatedOrderId) . '</a>';
+                    } else {
+                        echo '<div class="text-secondary">Sin pedido</div>';
+                    }
+                    echo '</div>';
                     echo '</div>';
                     echo '</div>';
                 }
                 echo '</div>';
+
+                if ($movementTotalPages > 1) {
+                    echo '<div class="mt-4" style="background:#181f2a; border-radius:16px; border:1px solid rgba(0,255,247,0.3); box-shadow:0 0 18px rgba(0,255,247,0.08); padding:1rem;">';
+                    echo '<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">';
+                    echo '<div class="text-secondary small">Página actual: ' . $movementPage . ' / ' . $movementTotalPages . '</div>';
+                    echo '<div class="text-secondary small">Movimientos por página: ' . $movementPerPage . '</div>';
+                    echo '</div>';
+                    echo '<div class="d-grid d-sm-flex flex-wrap justify-content-center gap-2">';
+
+                    $previousQuery = $movementBaseQuery;
+                    $previousQuery['pagina'] = max(1, $movementPage - 1);
+                    $nextQuery = $movementBaseQuery;
+                    $nextQuery['pagina'] = min($movementTotalPages, $movementPage + 1);
+
+                    if ($movementPage > 1) {
+                        echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $previousQuery)) . '" class="btn btn-outline-info btn-sm fw-semibold" style="min-width:110px; border-color:#00fff7; color:#00fff7; background:#181f2a;">Anterior</a>';
+                    }
+
+                    $pageStart = max(1, $movementPage - 2);
+                    $pageEnd = min($movementTotalPages, $movementPage + 2);
+                    for ($pageNumber = $pageStart; $pageNumber <= $pageEnd; $pageNumber++) {
+                        $pageQuery = $movementBaseQuery;
+                        $pageQuery['pagina'] = $pageNumber;
+                        $isActivePage = $pageNumber === $movementPage;
+                        $pageStyle = $isActivePage
+                            ? 'background:#00fff7; color:#181f2a; border:1px solid #00fff7; box-shadow:0 0 8px #00fff7;'
+                            : 'border-color:#00fff7; color:#00fff7; background:#181f2a;';
+                        echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $pageQuery)) . '" class="btn btn-sm fw-semibold ' . ($isActivePage ? 'btn-info' : 'btn-outline-info') . '" style="min-width:44px; ' . $pageStyle . '">' . $pageNumber . '</a>';
+                    }
+
+                    if ($movementPage < $movementTotalPages) {
+                        echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $nextQuery)) . '" class="btn btn-outline-info btn-sm fw-semibold" style="min-width:110px; border-color:#00fff7; color:#00fff7; background:#181f2a;">Siguiente</a>';
+                    }
+
+                    echo '</div>';
+                    echo '</div>';
+                }
                 break;
             case 'pedidos':
                 echo '<h2 class="text-2xl font-semibold mb-4 text-cyan-300">Gestión de Pedidos</h2>';
