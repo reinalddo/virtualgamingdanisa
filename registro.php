@@ -36,9 +36,8 @@ $user = [
 $users[] = $user;
 auth_save_users($tenantSlug, $users);
 
-if (session_status() !== PHP_SESSION_ACTIVE) {
-  session_start();
-}
+app_session_start();
+session_regenerate_id(true);
 
 $_SESSION["auth_user"] = [
   "id" => $user["id"],

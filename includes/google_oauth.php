@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/store_config.php';
+require_once __DIR__ . '/app_session.php';
 
 function google_oauth_base_url(): string {
     $https = $_SERVER['HTTPS'] ?? '';
@@ -36,9 +37,7 @@ function google_oauth_is_configured(): bool {
 }
 
 function google_oauth_generate_state(): string {
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start();
-    }
+    app_session_start();
 
     $state = bin2hex(random_bytes(16));
     $_SESSION['google_oauth_state'] = $state;
@@ -46,9 +45,7 @@ function google_oauth_generate_state(): string {
 }
 
 function google_oauth_validate_state(?string $state): bool {
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        session_start();
-    }
+    app_session_start();
 
     $expected = (string) ($_SESSION['google_oauth_state'] ?? '');
     unset($_SESSION['google_oauth_state']);

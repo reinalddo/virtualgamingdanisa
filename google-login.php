@@ -1,8 +1,7 @@
 <?php
 
-if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_start();
-}
+require_once __DIR__ . '/includes/app_session.php';
+app_session_start();
 
 require_once __DIR__ . '/includes/store_config.php';
 require_once __DIR__ . '/includes/google_oauth.php';

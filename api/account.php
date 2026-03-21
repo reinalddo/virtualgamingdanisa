@@ -1,5 +1,6 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/app_session.php';
+app_session_start();
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/../includes/db_connect.php';

@@ -1,5 +1,6 @@
 <?php
-session_start();
+require_once __DIR__ . '/../includes/app_session.php';
+app_session_start();
 $adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
 if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {
     header('Location: /login.php');

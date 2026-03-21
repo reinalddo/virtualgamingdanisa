@@ -1,14 +1,13 @@
 <?php
 require_once __DIR__ . '/app_timezone.php';
+require_once __DIR__ . '/app_session.php';
 
 function auth_normalize_email($email) {
   return strtolower(trim((string) $email));
 }
 
 function auth_set_flash($type, $message) {
-  if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_start();
-  }
+  app_session_start();
   $_SESSION["auth_flash"] = ["type" => $type, "message" => $message];
 }
 

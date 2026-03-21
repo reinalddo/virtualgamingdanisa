@@ -1,10 +1,9 @@
 <?php
 require_once __DIR__ . "/includes/db_connect.php";
+require_once __DIR__ . "/includes/app_session.php";
 
 $openLoginModalWithError = static function (string $message, string $emailValue = ''): void {
-  if (session_status() !== PHP_SESSION_ACTIVE) {
-    session_start();
-  }
+  app_session_start();
 
   $_SESSION["auth_modal_state"] = [
     "mode" => "login",
@@ -39,7 +38,8 @@ if ($user === null || empty($user["password"]) || !password_verify($password, $u
   $openLoginModalWithError("Credenciales inválidas.", $email);
 }
 
-session_start();
+app_session_start();
+session_regenerate_id(true);
 unset($_SESSION["auth_modal_state"]);
 $_SESSION["auth_user"] = [
   "id" => $user["id"],
