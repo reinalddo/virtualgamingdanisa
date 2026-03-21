@@ -144,6 +144,203 @@ function admin_movement_query_from_input(array $input): array {
     return $query;
 }
 
+function admin_parse_bank_movement_datetime(?string $value): ?string {
+    $raw = trim((string) $value);
+    if ($raw === '') {
+        return null;
+    }
+
+    $normalized = str_ireplace([' a. m.', ' p. m.', ' a.m.', ' p.m.', ' am', ' pm'], [' AM', ' PM', ' AM', ' PM', ' AM', ' PM'], $raw);
+    $date = DateTime::createFromFormat('d/m/Y h:i:s A', $normalized)
+        ?: DateTime::createFromFormat('d/m/Y h:i A', $normalized)
+        ?: DateTime::createFromFormat('d/m/Y H:i:s', $normalized)
+        ?: DateTime::createFromFormat('d/m/Y H:i', $normalized);
+
+    return $date ? $date->format('Y-m-d H:i:s') : null;
+}
+
+function admin_normalize_bank_amount($value): float {
+    if (is_numeric($value)) {
+        return round((float) $value, 2);
+    }
+
+    $clean = str_replace([',', ' '], '', (string) $value);
+    return is_numeric($clean) ? round((float) $clean, 2) : 0.0;
+}
+
+function admin_http_get_json(string $url, int $timeout = 20, bool $verifySsl = true): array {
+    $body = null;
+
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_CONNECTTIMEOUT => $timeout,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_SSL_VERIFYPEER => $verifySsl,
+            CURLOPT_SSL_VERIFYHOST => $verifySsl ? 2 : 0,
+        ]);
+        $response = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($response === false) {
+            throw new RuntimeException('No se pudo consultar la API bancaria: ' . $error);
+        }
+
+        if ($status >= 400) {
+            throw new RuntimeException('La API bancaria respondió con código HTTP ' . $status . '.');
+        }
+
+        $body = $response;
+    } else {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => $timeout,
+                'ignore_errors' => true,
+            ],
+            'ssl' => [
+                'verify_peer' => $verifySsl,
+                'verify_peer_name' => $verifySsl,
+            ],
+        ]);
+        $response = @file_get_contents($url, false, $context);
+        if ($response === false) {
+            throw new RuntimeException('No se pudo consultar la API bancaria.');
+        }
+        $body = $response;
+    }
+
+    $data = json_decode((string) $body, true);
+    if (!is_array($data)) {
+        throw new RuntimeException('La API bancaria no devolvió un JSON válido.');
+    }
+
+    return $data;
+}
+
+function admin_fetch_bank_movements_from_api(array $config): array {
+    $position = trim((string) ($config['ff_bank_posicion'] ?? ''));
+    $token = trim((string) ($config['ff_bank_token'] ?? ''));
+    $password = trim((string) ($config['ff_bank_clave'] ?? ''));
+
+    if ($position === '' || $token === '' || $password === '') {
+        throw new RuntimeException('La conexión automática para pagos en Bs/VES no está configurada completamente.');
+    }
+
+    $url = 'https://pagonorte.net/recargas/movimientos.jsp?' . http_build_query([
+        'posicion' => $position,
+        'token' => $token,
+        'password' => $password,
+    ]);
+
+    $data = admin_http_get_json($url, 20, false);
+    $movements = $data['movimientos'] ?? null;
+    if (!is_array($movements)) {
+        throw new RuntimeException('La API bancaria no devolvió la lista de movimientos esperada.');
+    }
+
+    $normalized = [];
+    foreach ($movements as $movement) {
+        if (!is_array($movement)) {
+            continue;
+        }
+
+        $reference = trim((string) ($movement['referencia'] ?? ''));
+        if ($reference === '') {
+            continue;
+        }
+
+        $normalized[] = [
+            'referencia' => substr($reference, 0, 120),
+            'descripcion' => substr(trim((string) ($movement['descripcion'] ?? '')), 0, 255),
+            'fecha_raw' => substr(trim((string) ($movement['fecha'] ?? '')), 0, 120),
+            'fecha_movimiento' => admin_parse_bank_movement_datetime((string) ($movement['fecha'] ?? '')),
+            'tipo' => substr(trim((string) ($movement['tipo'] ?? '')), 0, 80),
+            'monto' => admin_normalize_bank_amount($movement['monto'] ?? 0),
+            'moneda' => 'VES',
+            'payload_json' => json_encode($movement, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ];
+    }
+
+    return $normalized;
+}
+
+function admin_sync_bank_movements(PDO $pdo, array $movements): array {
+    if (empty($movements)) {
+        return [
+            'inserted' => 0,
+            'updated' => 0,
+            'processed' => 0,
+        ];
+    }
+
+    $references = [];
+    foreach ($movements as $movement) {
+        $reference = trim((string) ($movement['referencia'] ?? ''));
+        if ($reference !== '') {
+            $references[$reference] = true;
+        }
+    }
+
+    $existingReferences = [];
+    $referenceList = array_keys($references);
+    foreach (array_chunk($referenceList, 200) as $referenceChunk) {
+        if (empty($referenceChunk)) {
+            continue;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($referenceChunk), '?'));
+        $existingStmt = $pdo->prepare('SELECT referencia FROM movimientos WHERE referencia IN (' . $placeholders . ')');
+        $existingStmt->execute($referenceChunk);
+        foreach ($existingStmt->fetchAll(PDO::FETCH_COLUMN) as $existingReference) {
+            $existingReferences[(string) $existingReference] = true;
+        }
+    }
+
+    $syncStmt = $pdo->prepare(
+        'INSERT INTO movimientos (referencia, descripcion, fecha_raw, fecha_movimiento, tipo, monto, moneda, payload_json) '
+        . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
+        . 'ON DUPLICATE KEY UPDATE descripcion = VALUES(descripcion), fecha_raw = VALUES(fecha_raw), fecha_movimiento = COALESCE(VALUES(fecha_movimiento), fecha_movimiento), tipo = VALUES(tipo), monto = VALUES(monto), moneda = VALUES(moneda), payload_json = VALUES(payload_json)'
+    );
+
+    $inserted = 0;
+    $updated = 0;
+    foreach ($movements as $movement) {
+        $reference = (string) ($movement['referencia'] ?? '');
+        if ($reference === '') {
+            continue;
+        }
+
+        $wasExisting = isset($existingReferences[$reference]);
+        $syncStmt->execute([
+            $reference,
+            (string) ($movement['descripcion'] ?? ''),
+            (string) ($movement['fecha_raw'] ?? ''),
+            $movement['fecha_movimiento'] !== null ? (string) $movement['fecha_movimiento'] : null,
+            (string) ($movement['tipo'] ?? ''),
+            (float) ($movement['monto'] ?? 0),
+            (string) ($movement['moneda'] ?? 'VES'),
+            (string) ($movement['payload_json'] ?? ''),
+        ]);
+
+        if ($wasExisting) {
+            $updated++;
+        } else {
+            $inserted++;
+        }
+    }
+
+    return [
+        'inserted' => $inserted,
+        'updated' => $updated,
+        'processed' => $inserted + $updated,
+    ];
+}
+
 require_once __DIR__ . '/includes/influencer_coupons.php';
 
 switch ($seccion) {
@@ -346,6 +543,56 @@ switch ($seccion) {
 
     case 'movimientos':
         require_once __DIR__ . '/includes/db.php';
+        require_once __DIR__ . '/includes/store_config.php';
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['actualizar_movimientos_api'])) {
+            $redirectQuery = admin_movement_query_from_input($_POST);
+
+            try {
+                $bankConfig = [
+                    'ff_bank_posicion' => store_config_get('ff_bank_posicion', '0'),
+                    'ff_bank_token' => store_config_get('ff_bank_token', ''),
+                    'ff_bank_clave' => store_config_get('ff_bank_clave', ''),
+                ];
+                $movements = admin_fetch_bank_movements_from_api($bankConfig);
+                $syncSummary = admin_sync_bank_movements($pdo, $movements);
+                $hasNewMovements = (int) ($syncSummary['inserted'] ?? 0) > 0;
+
+                if (admin_is_ajax_request()) {
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode([
+                        'ok' => true,
+                        'has_new_movements' => $hasNewMovements,
+                        'inserted' => (int) ($syncSummary['inserted'] ?? 0),
+                        'updated' => (int) ($syncSummary['updated'] ?? 0),
+                        'processed' => (int) ($syncSummary['processed'] ?? 0),
+                        'message' => $hasNewMovements
+                            ? 'Se encontraron ' . (int) ($syncSummary['inserted'] ?? 0) . ' movimientos nuevos y ya fueron registrados.'
+                            : 'No hay movimientos nuevos para actualizar.',
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                    exit();
+                }
+
+                if ($hasNewMovements) {
+                    admin_set_flash('success', 'Se registraron ' . (int) ($syncSummary['inserted'] ?? 0) . ' movimientos nuevos desde la API.');
+                } else {
+                    admin_set_flash('info', 'No hay movimientos nuevos para actualizar.');
+                }
+            } catch (Throwable $e) {
+                if (admin_is_ajax_request()) {
+                    http_response_code(500);
+                    header('Content-Type: application/json; charset=utf-8');
+                    echo json_encode([
+                        'ok' => false,
+                        'message' => $e->getMessage(),
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                    exit();
+                }
+
+                admin_set_flash('error', $e->getMessage());
+            }
+
+            admin_redirect('movimientos', $redirectQuery);
+        }
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verificar_movimiento'])) {
             $movementId = (int) ($_POST['movimiento_id'] ?? 0);
             $redirectQuery = admin_movement_query_from_input($_POST);
@@ -1520,6 +1767,32 @@ require_once __DIR__ . '/includes/header.php';
                 echo '</div>';
                 echo '</form>';
 
+                echo '<div class="mb-4" style="background:#111827; border-radius:16px; border:1px solid rgba(0,255,247,0.24); box-shadow:0 0 18px rgba(0,255,247,0.08); padding:1rem 1.1rem;">';
+                echo '<div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">';
+                echo '<div>';
+                echo '<div class="text-uppercase small fw-semibold" style="color:#7dd3fc; letter-spacing:0.08em;">Sincronización manual</div>';
+                echo '<div class="text-secondary small">Consulta la API bancaria e inserta solo los movimientos nuevos en la tabla.</div>';
+                echo '</div>';
+                echo '<form method="POST" action="/admin/movimientos" class="m-0" data-sync-movements-form="1">';
+                echo '<input type="hidden" name="actualizar_movimientos_api" value="1">';
+                foreach ($movementBaseQuery as $queryKey => $queryValue) {
+                    echo '<input type="hidden" name="' . htmlspecialchars((string) $queryKey) . '" value="' . htmlspecialchars((string) $queryValue) . '">';
+                }
+                echo '<input type="hidden" name="pagina" value="' . $movementPage . '">';
+                echo '<button type="submit" class="btn btn-info fw-bold" data-sync-movements-button="1" style="min-width:240px; background:linear-gradient(135deg, #00fff7, #2dd4bf); color:#0f172a; border:none; box-shadow:0 0 16px rgba(0,255,247,0.28);">Actualizar Movimientos API</button>';
+                echo '</form>';
+                echo '</div>';
+                echo '<div class="mt-3 d-none" data-sync-movements-status style="border-radius:14px; padding:0.9rem 1rem; border:1px solid rgba(0,255,247,0.22); background:rgba(15,23,42,0.88);">';
+                echo '<div class="d-flex align-items-center gap-3">';
+                echo '<span class="d-inline-flex align-items-center justify-content-center d-none" data-sync-movements-spinner="1" style="width:18px; height:18px; border-radius:999px; border:2px solid rgba(0,255,247,0.24); border-top-color:#00fff7; animation:movement-sync-spin 0.9s linear infinite;"></span>';
+                echo '<div>';
+                echo '<div class="fw-semibold" data-sync-movements-title style="color:#00fff7;">Listo para actualizar</div>';
+                echo '<div class="small text-secondary" data-sync-movements-message>Presiona el botón para consultar la API bancaria.</div>';
+                echo '</div>';
+                echo '</div>';
+                echo '</div>';
+                echo '</div>';
+
                 echo '<div class="d-flex flex-wrap gap-2 align-items-center mb-3">';
                 echo '<span class="small text-uppercase fw-semibold" style="color:#7dd3fc; letter-spacing:0.08em;">Verificación rápida</span>';
                 foreach ($movementCheckedLabels as $checkedKey => $checkedLabel) {
@@ -1764,6 +2037,14 @@ require_once __DIR__ . '/includes/header.php';
         opacity: 1;
         transform: translateY(0);
     }
+    @keyframes movement-sync-spin {
+        from {
+            transform: rotate(0deg);
+        }
+        to {
+            transform: rotate(360deg);
+        }
+    }
     [data-movement-row],
     [data-movement-card] {
         transition: opacity 220ms ease, transform 260ms ease, box-shadow 220ms ease, filter 220ms ease;
@@ -1777,14 +2058,43 @@ require_once __DIR__ . '/includes/header.php';
 <script>
 (() => {
     const movementForms = document.querySelectorAll('[data-verify-movement-form]');
-    if (!movementForms.length) {
+    const syncForm = document.querySelector('[data-sync-movements-form]');
+    if (!movementForms.length && !syncForm) {
         return;
     }
     const currentCheckedFilter = <?php echo json_encode($movementCheckedFilter ?? 'no_verificados', JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+    const syncStatus = document.querySelector('[data-sync-movements-status]');
+    const syncStatusTitle = document.querySelector('[data-sync-movements-title]');
+    const syncStatusMessage = document.querySelector('[data-sync-movements-message]');
+    const syncSpinner = document.querySelector('[data-sync-movements-spinner]');
+    const syncButton = document.querySelector('[data-sync-movements-button]');
 
         function wait(ms) {
                 return new Promise((resolve) => window.setTimeout(resolve, ms));
         }
+
+    function setSyncStatus(type, title, message, isLoading) {
+        if (!syncStatus || !syncStatusTitle || !syncStatusMessage) {
+            return;
+        }
+
+        syncStatus.classList.remove('d-none');
+        syncStatus.style.borderColor = type === 'success'
+            ? 'rgba(126,231,135,0.35)'
+            : (type === 'error' ? 'rgba(248,113,113,0.35)' : 'rgba(0,255,247,0.24)');
+        syncStatus.style.background = type === 'success'
+            ? 'rgba(24,63,43,0.92)'
+            : (type === 'error' ? 'rgba(69,22,22,0.92)' : 'rgba(15,23,42,0.88)');
+        syncStatusTitle.style.color = type === 'success'
+            ? '#a8ffbf'
+            : (type === 'error' ? '#fca5a5' : '#00fff7');
+        syncStatusTitle.textContent = title;
+        syncStatusMessage.textContent = message;
+
+        if (syncSpinner) {
+            syncSpinner.classList.toggle('d-none', !isLoading);
+        }
+    }
 
         function showMovementToast(message) {
                 let toast = document.querySelector('[data-movement-toast]');
@@ -1961,6 +2271,57 @@ require_once __DIR__ . '/includes/header.php';
             verifyMovement(form);
         });
     });
+
+    if (syncForm) {
+        syncForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            const formData = new FormData(syncForm);
+            if (syncButton) {
+                syncButton.disabled = true;
+                syncButton.style.opacity = '0.75';
+            }
+
+            setSyncStatus('loading', 'Consultando API bancaria', 'Buscando nuevos movimientos y registrando cambios en la tabla movimientos...', true);
+
+            try {
+                const response = await fetch(syncForm.action, {
+                    method: 'POST',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json'
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.message || 'No se pudo actualizar los movimientos desde la API.');
+                }
+
+                if (data.has_new_movements) {
+                    setSyncStatus('success', 'Nuevos movimientos disponibles', data.message || 'Se registraron nuevos movimientos en la tabla.', false);
+                    showMovementToast('Movimientos actualizados desde la API');
+                    await wait(1500);
+                    window.location.reload();
+                    return;
+                }
+
+                setSyncStatus('info', 'Sin movimientos nuevos', data.message || 'No hay movimientos nuevos para actualizar.', false);
+                await wait(3000);
+                if (syncStatus) {
+                    syncStatus.classList.add('d-none');
+                }
+            } catch (error) {
+                setSyncStatus('error', 'No se pudo actualizar', error.message || 'Ocurrió un error al consultar la API bancaria.', false);
+            } finally {
+                if (syncButton) {
+                    syncButton.disabled = false;
+                    syncButton.style.opacity = '1';
+                }
+            }
+        });
+    }
 })();
 </script>
 <?php endif; ?>
