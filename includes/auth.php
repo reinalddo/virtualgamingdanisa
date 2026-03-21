@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/app_timezone.php';
+
 function auth_normalize_email($email) {
   return strtolower(trim((string) $email));
 }
