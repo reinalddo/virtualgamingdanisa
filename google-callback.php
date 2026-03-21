@@ -103,6 +103,11 @@ try {
         exit;
     }
 
+    if ($role === 'empleado') {
+        header('Location: /admin/pedidos');
+        exit;
+    }
+
     header('Location: ' . google_oauth_home_url());
     exit;
 } catch (Throwable $exception) {

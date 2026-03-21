@@ -27,6 +27,7 @@ $menuScript = <<<'SCRIPT'
   const authModal = document.getElementById("auth-modal");
   const authLogin = document.getElementById("auth-login");
   const authRegister = document.getElementById("auth-register");
+  const authInitialMode = authModal ? (authModal.dataset.authInitialMode || "").trim() : "";
   const passwordToggles = document.querySelectorAll("[data-password-toggle]");
   const userOrdersModal = document.getElementById("user-orders-modal");
   const userProfileModal = document.getElementById("user-profile-modal");
@@ -306,6 +307,10 @@ $menuScript = <<<'SCRIPT'
 
   window.openAuthModal = openAuthModal;
   window.togglePassword = togglePassword;
+
+  if (authInitialMode === "login" || authInitialMode === "register") {
+    openAuthModal(authInitialMode);
+  }
 
   if (authTrigger && authMenu && authContainer) {
     authTrigger.addEventListener("click", (event) => {

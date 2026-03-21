@@ -2383,7 +2383,8 @@ if ($action === 'cancel_order') {
 }
 
 if ($action === 'update_status') {
-    if (!isset($_SESSION['auth_user']) || ($_SESSION['auth_user']['rol'] ?? '') !== 'admin') {
+    $adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+    if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {
         json_error('No autorizado', 403);
     }
     $order_id = intval($_POST['order_id'] ?? 0);

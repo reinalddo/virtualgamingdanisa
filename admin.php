@@ -1,8 +1,29 @@
 <?php
 session_start();
 
-// Verificar si el usuario es admin
-if (!isset($_SESSION['auth_user']) || ($_SESSION['auth_user']['rol'] ?? '') !== 'admin') {
+function admin_allowed_roles(): array {
+    return ['admin', 'empleado'];
+}
+
+function admin_default_section_for_role(string $role): string {
+    return $role === 'empleado' ? 'pedidos' : 'dashboard';
+}
+
+function admin_user_can_access_section(string $role, string $section): bool {
+    if ($role === 'admin') {
+        return true;
+    }
+
+    if ($role === 'empleado') {
+        return in_array($section, ['pedidos', 'movimientos'], true);
+    }
+
+    return false;
+}
+
+// Verificar si el usuario puede entrar al admin
+$adminUserRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+if (!isset($_SESSION['auth_user']) || !in_array($adminUserRole, admin_allowed_roles(), true)) {
     header('Location: login.php');
     exit();
 }
@@ -13,6 +34,11 @@ if (isset($_SERVER['REQUEST_URI'])) {
     if (preg_match('#/admin/([a-zA-Z0-9_-]+)#', $_SERVER['REQUEST_URI'], $m)) {
         $seccion = $m[1];
     }
+}
+
+if (!admin_user_can_access_section($adminUserRole, $seccion)) {
+    admin_set_flash('error', 'No tienes permisos para acceder a esa sección.');
+    admin_redirect(admin_default_section_for_role($adminUserRole));
 }
 
 function normalize_coupon_code(string $value): string {
@@ -361,7 +387,7 @@ switch ($seccion) {
             $id = intval($_POST['id']);
             $nombre = trim($_POST['nombre'] ?? '');
             $rol = $_POST['rol'] ?? 'usuario';
-            if ($id && $nombre && in_array($rol, ['usuario', 'admin'], true)) {
+            if ($id && $nombre && in_array($rol, ['usuario', 'admin', 'empleado'], true)) {
                 $pdo->prepare('UPDATE usuarios SET nombre = ?, rol = ? WHERE id = ?')->execute([$nombre, $rol, $id]);
                 admin_set_flash('success', 'Usuario actualizado.');
             } else {
@@ -997,13 +1023,19 @@ require_once __DIR__ . '/includes/header.php';
             <h2 class="h3 fw-semibold mb-3">Bienvenido al panel de administración</h2>
             <p class="mb-4">Selecciona una sección para comenzar.</p>
             <div class="d-flex flex-wrap justify-content-center gap-3">
+                <?php if ($adminUserRole === 'admin'): ?>
                 <a href="/admin/usuarios" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>👤</span>Usuarios</a>
                 <a href="/admin/juegos" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>🎮</span>Juegos</a>
                 <a href="/admin/monedas" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>💵</span>Monedas</a>
+                <?php endif; ?>
                 <a href="/admin/movimientos" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>💳</span>Movimientos</a>
+                <?php if ($adminUserRole === 'admin'): ?>
                 <a href="/admin/cupones" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>✏️</span>Cupones</a>
+                <?php endif; ?>
                 <a href="/admin/pedidos" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>📋</span>Pedidos</a>
+                <?php if ($adminUserRole === 'admin'): ?>
                 <a href="/admin/configuracion" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>⚙️</span>Configuración</a>
+                <?php endif; ?>
             </div>
         </div>
         <?php endif; ?>
@@ -1026,7 +1058,7 @@ require_once __DIR__ . '/includes/header.php';
                     $id = intval($_POST['id']);
                     $nombre = trim($_POST['nombre'] ?? '');
                     $rol = $_POST['rol'] ?? 'usuario';
-                    if ($id && $nombre && in_array($rol, ['usuario','admin'])) {
+                    if ($id && $nombre && in_array($rol, ['usuario', 'admin', 'empleado'], true)) {
                         $pdo->prepare('UPDATE usuarios SET nombre = ?, rol = ? WHERE id = ?')->execute([$nombre, $rol, $id]);
                         echo '<div class="text-green-400 mb-2">Usuario actualizado.</div>';
                     }
@@ -1064,7 +1096,7 @@ require_once __DIR__ . '/includes/header.php';
                         echo '<td style="color:#fff; background:#181f2a;">' . htmlspecialchars($usuario['email']) . '</td>';
                         echo '<td style="background:#181f2a;">';
                         echo '<select name="rol" class="form-select form-select-sm" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
-                        foreach (["usuario"=>"Usuario","admin"=>"Admin"] as $rolVal=>$rolTxt) {
+                        foreach (["usuario"=>"Usuario","empleado"=>"Empleado","admin"=>"Admin"] as $rolVal=>$rolTxt) {
                             $sel = $usuario['rol']===$rolVal ? 'selected' : '';
                             echo "<option value='$rolVal' $sel>$rolTxt</option>";
                         }
@@ -1109,7 +1141,7 @@ require_once __DIR__ . '/includes/header.php';
                         echo '<div class="mb-2">';
                         echo '<label class="form-label text-info">Rol</label>';
                         echo '<select name="rol" class="form-select">';
-                        foreach (["usuario"=>"Usuario","admin"=>"Admin"] as $rolVal=>$rolTxt) {
+                        foreach (["usuario"=>"Usuario","empleado"=>"Empleado","admin"=>"Admin"] as $rolVal=>$rolTxt) {
                             $sel = $usuario['rol']===$rolVal ? 'selected' : '';
                             echo "<option value='$rolVal' $sel>$rolTxt</option>";
                         }

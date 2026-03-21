@@ -1,6 +1,7 @@
 <?php
 session_start();
-if (!isset($_SESSION['auth_user']) || ($_SESSION['auth_user']['rol'] ?? '') !== 'admin') {
+$adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {
     header('Location: /login.php');
     exit();
 }
