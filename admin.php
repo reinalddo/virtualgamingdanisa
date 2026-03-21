@@ -571,120 +571,122 @@ switch ($seccion) {
     case 'movimientos':
         require_once __DIR__ . '/includes/db.php';
         require_once __DIR__ . '/includes/store_config.php';
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['actualizar_movimientos_api'])) {
-            $redirectQuery = admin_movement_query_from_input($_POST);
+        if ($seccion === 'movimientos') {
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['actualizar_movimientos_api'])) {
+                $redirectQuery = admin_movement_query_from_input($_POST);
 
-            try {
-                $bankConfig = [
-                    'ff_bank_posicion' => store_config_get('ff_bank_posicion', '0'),
-                    'ff_bank_token' => store_config_get('ff_bank_token', ''),
-                    'ff_bank_clave' => store_config_get('ff_bank_clave', ''),
-                ];
-                $movements = admin_fetch_bank_movements_from_api($bankConfig);
-                $syncSummary = admin_sync_bank_movements($pdo, $movements);
-                $hasNewMovements = (int) ($syncSummary['inserted'] ?? 0) > 0;
+                try {
+                    $bankConfig = [
+                        'ff_bank_posicion' => store_config_get('ff_bank_posicion', '0'),
+                        'ff_bank_token' => store_config_get('ff_bank_token', ''),
+                        'ff_bank_clave' => store_config_get('ff_bank_clave', ''),
+                    ];
+                    $movements = admin_fetch_bank_movements_from_api($bankConfig);
+                    $syncSummary = admin_sync_bank_movements($pdo, $movements);
+                    $hasNewMovements = (int) ($syncSummary['inserted'] ?? 0) > 0;
 
-                if (admin_is_ajax_request()) {
-                    header('Content-Type: application/json; charset=utf-8');
-                    echo json_encode([
-                        'ok' => true,
-                        'has_new_movements' => $hasNewMovements,
-                        'inserted' => (int) ($syncSummary['inserted'] ?? 0),
-                        'updated' => (int) ($syncSummary['updated'] ?? 0),
-                        'processed' => (int) ($syncSummary['processed'] ?? 0),
-                        'message' => $hasNewMovements
-                            ? 'Se encontraron ' . (int) ($syncSummary['inserted'] ?? 0) . ' movimientos nuevos y ya fueron registrados.'
-                            : 'No hay movimientos nuevos para actualizar.',
-                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                    exit();
-                }
-
-                if ($hasNewMovements) {
-                    admin_set_flash('success', 'Se registraron ' . (int) ($syncSummary['inserted'] ?? 0) . ' movimientos nuevos desde la API.');
-                } else {
-                    admin_set_flash('info', 'No hay movimientos nuevos para actualizar.');
-                }
-            } catch (Throwable $e) {
-                if (admin_is_ajax_request()) {
-                    http_response_code(500);
-                    header('Content-Type: application/json; charset=utf-8');
-                    echo json_encode([
-                        'ok' => false,
-                        'message' => $e->getMessage(),
-                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                    exit();
-                }
-
-                admin_set_flash('error', $e->getMessage());
-            }
-
-            admin_redirect('movimientos', $redirectQuery);
-        }
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verificar_movimiento'])) {
-            $movementId = (int) ($_POST['movimiento_id'] ?? 0);
-            $redirectQuery = admin_movement_query_from_input($_POST);
-
-            if ($movementId > 0) {
-                $stmt = $pdo->prepare('UPDATE movimientos SET checked = 1 WHERE id = ? AND (checked IS NULL OR checked = 0)');
-                $stmt->execute([$movementId]);
-                if ($stmt->rowCount() > 0) {
                     if (admin_is_ajax_request()) {
                         header('Content-Type: application/json; charset=utf-8');
                         echo json_encode([
                             'ok' => true,
-                            'movement_id' => $movementId,
-                            'checked' => 1,
-                            'message' => 'Movimiento verificado correctamente.',
+                            'has_new_movements' => $hasNewMovements,
+                            'inserted' => (int) ($syncSummary['inserted'] ?? 0),
+                            'updated' => (int) ($syncSummary['updated'] ?? 0),
+                            'processed' => (int) ($syncSummary['processed'] ?? 0),
+                            'message' => $hasNewMovements
+                                ? 'Se encontraron ' . (int) ($syncSummary['inserted'] ?? 0) . ' movimientos nuevos y ya fueron registrados.'
+                                : 'No hay movimientos nuevos para actualizar.',
                         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                         exit();
                     }
-                    admin_set_flash('success', 'Movimiento verificado correctamente.');
-                } else {
-                    $checkStmt = $pdo->prepare('SELECT checked FROM movimientos WHERE id = ? LIMIT 1');
-                    $checkStmt->execute([$movementId]);
-                    $existingMovement = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-                    if ($existingMovement) {
+                    if ($hasNewMovements) {
+                        admin_set_flash('success', 'Se registraron ' . (int) ($syncSummary['inserted'] ?? 0) . ' movimientos nuevos desde la API.');
+                    } else {
+                        admin_set_flash('info', 'No hay movimientos nuevos para actualizar.');
+                    }
+                } catch (Throwable $e) {
+                    if (admin_is_ajax_request()) {
+                        http_response_code(500);
+                        header('Content-Type: application/json; charset=utf-8');
+                        echo json_encode([
+                            'ok' => false,
+                            'message' => $e->getMessage(),
+                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                        exit();
+                    }
+
+                    admin_set_flash('error', $e->getMessage());
+                }
+
+                admin_redirect('movimientos', $redirectQuery);
+            }
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['verificar_movimiento'])) {
+                $movementId = (int) ($_POST['movimiento_id'] ?? 0);
+                $redirectQuery = admin_movement_query_from_input($_POST);
+
+                if ($movementId > 0) {
+                    $stmt = $pdo->prepare('UPDATE movimientos SET checked = 1 WHERE id = ? AND (checked IS NULL OR checked = 0)');
+                    $stmt->execute([$movementId]);
+                    if ($stmt->rowCount() > 0) {
                         if (admin_is_ajax_request()) {
                             header('Content-Type: application/json; charset=utf-8');
                             echo json_encode([
                                 'ok' => true,
                                 'movement_id' => $movementId,
-                                'checked' => (int) ($existingMovement['checked'] ?? 0) === 1 ? 1 : 0,
-                                'message' => 'El movimiento ya estaba verificado.',
+                                'checked' => 1,
+                                'message' => 'Movimiento verificado correctamente.',
                             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
                             exit();
                         }
-                        admin_set_flash('info', 'El movimiento ya estaba verificado.');
+                        admin_set_flash('success', 'Movimiento verificado correctamente.');
                     } else {
-                        if (admin_is_ajax_request()) {
-                            http_response_code(404);
-                            header('Content-Type: application/json; charset=utf-8');
-                            echo json_encode([
-                                'ok' => false,
-                                'message' => 'El movimiento no existe.',
-                            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                            exit();
-                        }
-                        admin_set_flash('error', 'El movimiento no existe.');
-                    }
-                }
-            } else {
-                if (admin_is_ajax_request()) {
-                    http_response_code(422);
-                    header('Content-Type: application/json; charset=utf-8');
-                    echo json_encode([
-                        'ok' => false,
-                        'message' => 'Movimiento inválido para verificar.',
-                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                    exit();
-                }
-                admin_set_flash('error', 'Movimiento inválido para verificar.');
-            }
+                        $checkStmt = $pdo->prepare('SELECT checked FROM movimientos WHERE id = ? LIMIT 1');
+                        $checkStmt->execute([$movementId]);
+                        $existingMovement = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
-            admin_redirect('movimientos', $redirectQuery);
+                        if ($existingMovement) {
+                            if (admin_is_ajax_request()) {
+                                header('Content-Type: application/json; charset=utf-8');
+                                echo json_encode([
+                                    'ok' => true,
+                                    'movement_id' => $movementId,
+                                    'checked' => (int) ($existingMovement['checked'] ?? 0) === 1 ? 1 : 0,
+                                    'message' => 'El movimiento ya estaba verificado.',
+                                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                                exit();
+                            }
+                            admin_set_flash('info', 'El movimiento ya estaba verificado.');
+                        } else {
+                            if (admin_is_ajax_request()) {
+                                http_response_code(404);
+                                header('Content-Type: application/json; charset=utf-8');
+                                echo json_encode([
+                                    'ok' => false,
+                                    'message' => 'El movimiento no existe.',
+                                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                                exit();
+                            }
+                            admin_set_flash('error', 'El movimiento no existe.');
+                        }
+                    }
+                } else {
+                    if (admin_is_ajax_request()) {
+                        http_response_code(422);
+                        header('Content-Type: application/json; charset=utf-8');
+                        echo json_encode([
+                            'ok' => false,
+                            'message' => 'Movimiento inválido para verificar.',
+                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                        exit();
+                    }
+                    admin_set_flash('error', 'Movimiento inválido para verificar.');
+                }
+
+                admin_redirect('movimientos', $redirectQuery);
+            }
+            break;
         }
-        break;
 
         if ($activeTab === 'galeria' && isset($_GET['eliminar_galeria'])) {
             $galleryId = intval($_GET['eliminar_galeria']);
