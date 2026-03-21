@@ -260,6 +260,7 @@ $googleAuthLoginUrl = $googleAuthEnabled ? google_oauth_login_url() : '';
               <a href="/admin/dashboard" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Dashboard</a>
               <a href="/admin/juegos" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Juegos</a>
               <a href="/admin/monedas" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Monedas</a>
+              <a href="/admin/movimientos" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Movimientos</a>
               <a href="/admin/pedidos" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Pedidos</a>
               <a href="/admin/usuarios" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Usuarios</a>
               <a href="/admin/cupones" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Cupones</a>

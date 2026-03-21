@@ -600,6 +600,7 @@ require_once __DIR__ . '/includes/header.php';
                 <a href="/admin/usuarios" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>👤</span>Usuarios</a>
                 <a href="/admin/juegos" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>🎮</span>Juegos</a>
                 <a href="/admin/monedas" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>💵</span>Monedas</a>
+                <a href="/admin/movimientos" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>💳</span>Movimientos</a>
                 <a href="/admin/cupones" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>✏️</span>Cupones</a>
                 <a href="/admin/pedidos" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>📋</span>Pedidos</a>
                 <a href="/admin/configuracion" class="btn btn-outline-info btn-lg d-flex align-items-center gap-2"><span>⚙️</span>Configuración</a>
@@ -1171,6 +1172,76 @@ require_once __DIR__ . '/includes/header.php';
                     </div>
                 <?php endif; ?>
                 <?php
+                break;
+            case 'movimientos':
+                require_once __DIR__ . '/includes/db.php';
+                echo '<h2 class="display-6 fw-bold text-info mb-3">Movimientos Bancarios</h2>';
+                echo '<p class="text-secondary mb-4">Listado de movimientos registrados en la tabla movimientos.</p>';
+
+                $movimientos = $pdo->query('SELECT referencia, descripcion, fecha_movimiento, monto, moneda FROM movimientos ORDER BY fecha_movimiento DESC, referencia DESC')->fetchAll(PDO::FETCH_ASSOC);
+
+                if (count($movimientos) === 0) {
+                    echo '<div class="text-secondary">No hay movimientos registrados.</div>';
+                    break;
+                }
+
+                echo '<div class="table-responsive mb-4 d-none d-md-block" style="background:#10141a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem;">';
+                echo '<table class="table align-middle mb-0" style="background:#181f2a; color:#00fff7; border-radius:12px;">';
+                echo '<thead style="background:#181f2a; color:#00fff7; border-bottom:2px solid #00fff7;">';
+                echo '<tr>';
+                echo '<th style="color:#00fff7; background:#181f2a; min-width:160px;">Referencia</th>';
+                echo '<th style="color:#00fff7; background:#181f2a; min-width:260px;">Descripción</th>';
+                echo '<th style="color:#00fff7; background:#181f2a; min-width:180px;">Fecha movimiento</th>';
+                echo '<th style="color:#00fff7; background:#181f2a; min-width:130px;">Monto</th>';
+                echo '<th style="color:#00fff7; background:#181f2a; min-width:90px;">Moneda</th>';
+                echo '</tr>';
+                echo '</thead>';
+                echo '<tbody>';
+
+                $rowAlt = false;
+                foreach ($movimientos as $movimiento) {
+                    $rowStyle = $rowAlt ? 'background:#151a24;' : 'background:#181f2a;';
+                    echo '<tr style="' . $rowStyle . ' color:#fff;">';
+                    echo '<td style="background:#181f2a; color:#00fff7; font-weight:600;">' . htmlspecialchars(admin_display_value($movimiento['referencia'] ?? null)) . '</td>';
+                    echo '<td style="background:#181f2a; color:#fff;">' . htmlspecialchars(admin_display_value($movimiento['descripcion'] ?? null)) . '</td>';
+                    echo '<td style="background:#181f2a; color:#b2f6ff;">' . htmlspecialchars(admin_display_value($movimiento['fecha_movimiento'] ?? null)) . '</td>';
+                    echo '<td style="background:#181f2a; color:#00ffb3; font-weight:bold;">' . htmlspecialchars(admin_format_money($movimiento['monto'] ?? 0)) . '</td>';
+                    echo '<td style="background:#181f2a; color:#b2f6ff; font-weight:600;">' . htmlspecialchars(admin_display_value($movimiento['moneda'] ?? null)) . '</td>';
+                    echo '</tr>';
+                    $rowAlt = !$rowAlt;
+                }
+
+                echo '</tbody></table>';
+                echo '</div>';
+
+                echo '<div class="d-block d-md-none">';
+                foreach ($movimientos as $movimiento) {
+                    echo '<div style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem; color:#00fff7; margin-bottom:1rem;">';
+                    echo '<div style="display:grid; grid-template-columns:1fr; gap:0.75rem;">';
+                    echo '<div style="padding-bottom:0.6rem; border-bottom:1px solid rgba(0,255,247,0.18);">';
+                    echo '<div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:#7dd3fc;">Referencia</div>';
+                    echo '<div style="font-weight:700; color:#00fff7; word-break:break-word;">' . htmlspecialchars(admin_display_value($movimiento['referencia'] ?? null)) . '</div>';
+                    echo '</div>';
+                    echo '<div style="padding-bottom:0.6rem; border-bottom:1px solid rgba(0,255,247,0.18);">';
+                    echo '<div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:#7dd3fc;">Descripción</div>';
+                    echo '<div style="color:#ffffff;">' . htmlspecialchars(admin_display_value($movimiento['descripcion'] ?? null)) . '</div>';
+                    echo '</div>';
+                    echo '<div style="padding-bottom:0.6rem; border-bottom:1px solid rgba(0,255,247,0.18);">';
+                    echo '<div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:#7dd3fc;">Fecha movimiento</div>';
+                    echo '<div style="color:#b2f6ff;">' . htmlspecialchars(admin_display_value($movimiento['fecha_movimiento'] ?? null)) . '</div>';
+                    echo '</div>';
+                    echo '<div style="padding-bottom:0.6rem; border-bottom:1px solid rgba(0,255,247,0.18);">';
+                    echo '<div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:#7dd3fc;">Monto</div>';
+                    echo '<div style="color:#00ffb3; font-weight:700;">' . htmlspecialchars(admin_format_money($movimiento['monto'] ?? 0)) . '</div>';
+                    echo '</div>';
+                    echo '<div>';
+                    echo '<div style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; color:#7dd3fc;">Moneda</div>';
+                    echo '<div style="color:#b2f6ff; font-weight:600;">' . htmlspecialchars(admin_display_value($movimiento['moneda'] ?? null)) . '</div>';
+                    echo '</div>';
+                    echo '</div>';
+                    echo '</div>';
+                }
+                echo '</div>';
                 break;
             case 'pedidos':
                 echo '<h2 class="text-2xl font-semibold mb-4 text-cyan-300">Gestión de Pedidos</h2>';
