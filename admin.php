@@ -735,12 +735,26 @@ switch ($seccion) {
                 $nombrePrefijo = trim((string) ($_POST['nombre_prefijo'] ?? ''));
                 $nombreTienda = trim((string) ($_POST['nombre_tienda'] ?? ''));
                 $nombreTiendaSubtitulo = trim((string) ($_POST['nombre_tienda_subtitulo'] ?? ''));
+                $metaTitulo = trim((string) ($_POST['meta_titulo'] ?? ''));
+                $metaDescripcion = trim((string) ($_POST['meta_descripcion'] ?? ''));
                 $currentLogo = store_config_get('logo_tienda', '');
                 $nextLogo = $currentLogo;
                 $hasUpload = isset($_FILES['logo_tienda']) && (($_FILES['logo_tienda']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE);
 
-                if ($nombrePrefijo === '' || $nombreTienda === '' || $nombreTiendaSubtitulo === '') {
-                    admin_set_flash('error', 'Completa el nombre prefijo, el nombre de la tienda y el subtítulo del navegador.');
+                if ($nombrePrefijo === '' || $nombreTienda === '' || $nombreTiendaSubtitulo === '' || $metaTitulo === '' || $metaDescripcion === '') {
+                    admin_set_flash('error', 'Completa el nombre prefijo, el nombre de la tienda, el subtítulo, el meta title SEO y la meta descripción SEO.');
+                    define('ADMIN_CONFIG_POST_HANDLED', true);
+                    admin_redirect('configuracion', ['tab' => 'cabecera']);
+                }
+
+                if (function_exists('mb_strlen') ? mb_strlen($metaTitulo, 'UTF-8') > 255 : strlen($metaTitulo) > 255) {
+                    admin_set_flash('error', 'El meta title SEO no debe superar los 255 caracteres.');
+                    define('ADMIN_CONFIG_POST_HANDLED', true);
+                    admin_redirect('configuracion', ['tab' => 'cabecera']);
+                }
+
+                if (function_exists('mb_strlen') ? mb_strlen($metaDescripcion, 'UTF-8') > 320 : strlen($metaDescripcion) > 320) {
+                    admin_set_flash('error', 'La meta descripción SEO no debe superar los 320 caracteres.');
                     define('ADMIN_CONFIG_POST_HANDLED', true);
                     admin_redirect('configuracion', ['tab' => 'cabecera']);
                 }
@@ -762,6 +776,8 @@ switch ($seccion) {
                 store_config_upsert('nombre_prefijo', $nombrePrefijo);
                 store_config_upsert('nombre_tienda', $nombreTienda);
                 store_config_upsert('nombre_tienda_subtitulo', $nombreTiendaSubtitulo);
+                store_config_upsert('meta_titulo', $metaTitulo);
+                store_config_upsert('meta_descripcion', $metaDescripcion);
                 if ($nextLogo === '') {
                     store_config_delete('logo_tienda');
                 } else {

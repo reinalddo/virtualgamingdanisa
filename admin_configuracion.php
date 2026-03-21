@@ -438,6 +438,16 @@ $googleCallbackUrl = google_oauth_callback_url();
                     <div class="form-text mt-2">Este texto se usa en el título del inicio y puede aparecer en el aviso de instalar la app en el navegador.</div>
                   </div>
                   <div class="mb-3">
+                    <label class="form-label">Meta title SEO</label>
+                    <input type="text" name="meta_titulo" value="<?= htmlspecialchars($cfg['meta_titulo'] ?? (($cfg['nombre_tienda'] ?? 'TVirtualGaming') . ' | ' . ($cfg['nombre_tienda_subtitulo'] ?? 'Tienda de monedas digitales'))) ?>" required maxlength="255" class="form-control" placeholder="DanisA Gamer Store | Tienda de recargas y monedas digitales">
+                    <div class="form-text mt-2">Este título se usa en la etiqueta title, en Google y al compartir en redes. Idealmente mantenlo entre 50 y 60 caracteres.</div>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Meta descripción SEO</label>
+                    <textarea name="meta_descripcion" rows="4" required maxlength="320" class="form-control" placeholder="Describe la tienda en una o dos frases para Google y redes sociales."><?= htmlspecialchars($cfg['meta_descripcion'] ?? 'Compra monedas y recargas digitales en TVirtualGaming. Recibe ofertas, promociones y novedades directamente en tu WhatsApp.') ?></textarea>
+                    <div class="form-text mt-2">Google suele usar este texto como descripción del resultado de búsqueda. Intenta mantenerlo entre 140 y 160 caracteres para un snippet más estable.</div>
+                  </div>
+                  <div class="mb-3">
                     <label class="form-label">Logo tienda</label>
                     <input type="file" name="logo_tienda" accept="image/png,image/jpeg,image/webp,image/gif" class="form-control">
                     <div class="form-text mt-2">Formatos permitidos: JPG, PNG, WEBP o GIF. Tamaño máximo: 2 MB.</div>

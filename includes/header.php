@@ -20,6 +20,15 @@ if (!isset($pageTitle)) {
 if (!isset($brandName)) {
   $brandName = store_config_get('nombre_tienda', 'TVirtualGaming');
 }
+$defaultMetaTitle = store_config_get('nombre_tienda', 'TVirtualGaming') . ' | ' . store_config_get('nombre_tienda_subtitulo', 'Tienda de monedas digitales');
+$pageMetaTitle = trim((string) store_config_get('meta_titulo', $defaultMetaTitle));
+if ($pageMetaTitle === '') {
+  $pageMetaTitle = $defaultMetaTitle;
+}
+$pageDescription = trim((string) store_config_get('meta_descripcion', 'Compra monedas y recargas digitales en TVirtualGaming. Recibe ofertas, promociones y novedades directamente en tu WhatsApp.'));
+if ($pageDescription === '') {
+  $pageDescription = 'Compra monedas y recargas digitales en TVirtualGaming. Recibe ofertas, promociones y novedades directamente en tu WhatsApp.';
+}
 
 $authUser = $_SESSION['auth_user'] ?? null;
 $authUserName = trim((string) (($authUser['full_name'] ?? $authUser['nombre'] ?? $authUser['email'] ?? 'Usuario')));
@@ -69,6 +78,15 @@ $mainStylesVersion = asset_version($mainStylesPath);
 $themeVariablesCss = store_theme_css_variables();
 $googleAuthEnabled = google_oauth_is_configured();
 $googleAuthLoginUrl = $googleAuthEnabled ? google_oauth_login_url() : '';
+$pageCanonicalUrl = google_oauth_home_url();
+$pageOgImage = '';
+if ($brandLogo !== '') {
+  if (preg_match('#^https?://#i', $brandLogo) === 1) {
+    $pageOgImage = $brandLogo;
+  } else {
+    $pageOgImage = rtrim(google_oauth_base_url(), '/') . '/' . ltrim($brandLogo, '/');
+  }
+}
 $authModalState = $_SESSION['auth_modal_state'] ?? null;
 if ($authModalState) {
   unset($_SESSION['auth_modal_state']);
@@ -85,7 +103,21 @@ $authModalLoginEmail = trim((string) ($authModalState['email'] ?? ''));
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <title><?php echo htmlspecialchars($pageTitle, ENT_QUOTES, "UTF-8"); ?></title>
+  <title><?php echo htmlspecialchars($pageMetaTitle, ENT_QUOTES, "UTF-8"); ?></title>
+  <meta name="description" content="<?php echo htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8'); ?>" />
+  <meta property="og:title" content="<?php echo htmlspecialchars($pageMetaTitle, ENT_QUOTES, 'UTF-8'); ?>" />
+  <meta property="og:description" content="<?php echo htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8'); ?>" />
+  <meta property="og:url" content="<?php echo htmlspecialchars($pageCanonicalUrl, ENT_QUOTES, 'UTF-8'); ?>" />
+  <meta property="og:type" content="website" />
+  <?php if ($pageOgImage !== ''): ?>
+  <meta property="og:image" content="<?php echo htmlspecialchars($pageOgImage, ENT_QUOTES, 'UTF-8'); ?>" />
+  <?php endif; ?>
+  <meta name="twitter:card" content="<?php echo $pageOgImage !== '' ? 'summary_large_image' : 'summary'; ?>" />
+  <meta name="twitter:title" content="<?php echo htmlspecialchars($pageMetaTitle, ENT_QUOTES, 'UTF-8'); ?>" />
+  <meta name="twitter:description" content="<?php echo htmlspecialchars($pageDescription, ENT_QUOTES, 'UTF-8'); ?>" />
+  <?php if ($pageOgImage !== ''): ?>
+  <meta name="twitter:image" content="<?php echo htmlspecialchars($pageOgImage, ENT_QUOTES, 'UTF-8'); ?>" />
+  <?php endif; ?>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@400;600;700&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
