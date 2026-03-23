@@ -1742,7 +1742,7 @@ require_once __DIR__ . '/includes/header.php';
                 echo '<h2 class="display-6 fw-bold text-info mb-3">Movimientos Bancarios</h2>';
                 echo '<p class="text-secondary mb-4">Listado de movimientos registrados en la tabla movimientos.</p>';
 
-                echo '<form method="GET" action="/admin/movimientos" class="row g-3 mb-4 align-items-end" style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1.5rem;">';
+                echo '<form method="GET" action="/admin/movimientos" class="row g-3 mb-4 align-items-end" data-movement-filter-form="1" style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1.5rem;">';
                 echo '<div class="col-12 col-lg-4">';
                 echo '<label class="form-label" style="color:#00fff7;">Buscar por referencia</label>';
                 echo '<input type="search" name="referencia" value="' . htmlspecialchars($movementReference) . '" class="form-control" placeholder="Ej. 5398344305" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
@@ -1814,9 +1814,11 @@ require_once __DIR__ . '/includes/header.php';
                 echo '</div>';
                 echo '<div class="col-12 col-lg-2 d-flex gap-2">';
                 echo '<button type="submit" class="btn btn-info flex-fill fw-bold" style="background:#00fff7; color:#181f2a; border:none; box-shadow:0 0 8px #00fff7;">Filtrar</button>';
-                echo '<a href="/admin/movimientos" class="btn btn-outline-info flex-fill fw-bold" style="border:1px solid #00fff7; color:#00fff7; background:#181f2a;">Limpiar</a>';
+                echo '<a href="/admin/movimientos" data-movement-filter-clear="1" class="btn btn-outline-info flex-fill fw-bold" style="border:1px solid #00fff7; color:#00fff7; background:#181f2a;">Limpiar</a>';
                 echo '</div>';
                 echo '</form>';
+
+                echo '<div data-movements-refresh-root="1">';
 
                 echo '<div class="mb-4" style="background:#111827; border-radius:16px; border:1px solid rgba(0,255,247,0.24); box-shadow:0 0 18px rgba(0,255,247,0.08); padding:1rem 1.1rem;">';
                 echo '<div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">';
@@ -1855,7 +1857,7 @@ require_once __DIR__ . '/includes/header.php';
                     $chipStyle = $isActiveChip
                         ? 'background:#00fff7; color:#181f2a; border:1px solid #00fff7; box-shadow:0 0 10px #00fff7;'
                         : 'background:#181f2a; color:#00fff7; border:1px solid rgba(0,255,247,0.45);';
-                    echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $chipQuery)) . '" class="btn btn-sm rounded-pill fw-semibold" style="' . $chipStyle . '">';
+                    echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $chipQuery)) . '" data-movements-ajax-link="1" class="btn btn-sm rounded-pill fw-semibold" style="' . $chipStyle . '">';
                     echo htmlspecialchars($checkedLabel) . ': <span data-movement-count-label="' . htmlspecialchars($checkedKey) . '">' . $chipCount . '</span>';
                     echo '</a>';
                 }
@@ -1873,6 +1875,7 @@ require_once __DIR__ . '/includes/header.php';
 
                 if ($movementTotal === 0) {
                     echo '<div class="text-secondary">No hay movimientos registrados.</div>';
+                    echo '</div>';
                     break;
                 }
 
@@ -1902,7 +1905,7 @@ require_once __DIR__ . '/includes/header.php';
                     $columnQuery['pagina'] = 1;
                     $minWidth = $movementColumnKey === 'descripcion' ? '260px' : ($movementColumnKey === 'fecha_movimiento' ? '180px' : ($movementColumnKey === 'monto' ? '130px' : ($movementColumnKey === 'moneda' ? '90px' : '160px')));
                     echo '<th style="color:#00fff7; background:#181f2a; min-width:' . $minWidth . ';">';
-                    echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $columnQuery)) . '" style="color:#00fff7; text-decoration:none; display:inline-flex; align-items:center; gap:0.35rem;">' . htmlspecialchars($movementSortLabels[$movementColumnKey]) . '<span style="opacity:0.9;">' . htmlspecialchars($columnArrow) . '</span></a>';
+                    echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $columnQuery)) . '" data-movements-ajax-link="1" style="color:#00fff7; text-decoration:none; display:inline-flex; align-items:center; gap:0.35rem;">' . htmlspecialchars($movementSortLabels[$movementColumnKey]) . '<span style="opacity:0.9;">' . htmlspecialchars($columnArrow) . '</span></a>';
                     echo '</th>';
                 }
                 echo '<th style="color:#00fff7; background:#181f2a; min-width:140px;">Verificar</th>';
@@ -2029,7 +2032,7 @@ require_once __DIR__ . '/includes/header.php';
                     $nextQuery['pagina'] = min($movementTotalPages, $movementPage + 1);
 
                     if ($movementPage > 1) {
-                        echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $previousQuery)) . '" class="btn btn-outline-info btn-sm fw-semibold" style="min-width:110px; border-color:#00fff7; color:#00fff7; background:#181f2a;">Anterior</a>';
+                        echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $previousQuery)) . '" data-movements-ajax-link="1" class="btn btn-outline-info btn-sm fw-semibold" style="min-width:110px; border-color:#00fff7; color:#00fff7; background:#181f2a;">Anterior</a>';
                     }
 
                     $pageStart = max(1, $movementPage - 2);
@@ -2041,16 +2044,17 @@ require_once __DIR__ . '/includes/header.php';
                         $pageStyle = $isActivePage
                             ? 'background:#00fff7; color:#181f2a; border:1px solid #00fff7; box-shadow:0 0 8px #00fff7;'
                             : 'border-color:#00fff7; color:#00fff7; background:#181f2a;';
-                        echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $pageQuery)) . '" class="btn btn-sm fw-semibold ' . ($isActivePage ? 'btn-info' : 'btn-outline-info') . '" style="min-width:44px; ' . $pageStyle . '">' . $pageNumber . '</a>';
+                        echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $pageQuery)) . '" data-movements-ajax-link="1" class="btn btn-sm fw-semibold ' . ($isActivePage ? 'btn-info' : 'btn-outline-info') . '" style="min-width:44px; ' . $pageStyle . '">' . $pageNumber . '</a>';
                     }
 
                     if ($movementPage < $movementTotalPages) {
-                        echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $nextQuery)) . '" class="btn btn-outline-info btn-sm fw-semibold" style="min-width:110px; border-color:#00fff7; color:#00fff7; background:#181f2a;">Siguiente</a>';
+                        echo '<a href="' . htmlspecialchars(admin_build_url('/admin/movimientos', $nextQuery)) . '" data-movements-ajax-link="1" class="btn btn-outline-info btn-sm fw-semibold" style="min-width:110px; border-color:#00fff7; color:#00fff7; background:#181f2a;">Siguiente</a>';
                     }
 
                     echo '</div>';
                     echo '</div>';
                 }
+                echo '</div>';
                 break;
             case 'pedidos':
                 echo '<h2 class="text-2xl font-semibold mb-4 text-cyan-300">Gestión de Pedidos</h2>';
@@ -2108,23 +2112,161 @@ require_once __DIR__ . '/includes/header.php';
 </style>
 <script>
 (() => {
+    const filterForm = document.querySelector('[data-movement-filter-form]');
+    const filterClearLink = document.querySelector('[data-movement-filter-clear]');
+    const movementRootSelector = '[data-movements-refresh-root]';
     const movementForms = document.querySelectorAll('[data-verify-movement-form]');
     const syncForm = document.querySelector('[data-sync-movements-form]');
-    if (!movementForms.length && !syncForm) {
+    if (!filterForm && !movementForms.length && !syncForm) {
         return;
     }
-    const currentCheckedFilter = <?php echo json_encode($movementCheckedFilter ?? 'no_verificados', JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
-    const syncStatus = document.querySelector('[data-sync-movements-status]');
-    const syncStatusTitle = document.querySelector('[data-sync-movements-title]');
-    const syncStatusMessage = document.querySelector('[data-sync-movements-message]');
-    const syncSpinner = document.querySelector('[data-sync-movements-spinner]');
-    const syncButton = document.querySelector('[data-sync-movements-button]');
+    let filterAutoSubmitTimer = 0;
+    let movementsRequestController = null;
 
-        function wait(ms) {
-                return new Promise((resolve) => window.setTimeout(resolve, ms));
+    function wait(ms) {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    function getMovementRoot() {
+        return document.querySelector(movementRootSelector);
+    }
+
+    function getCurrentCheckedFilter() {
+        const checkedField = filterForm ? filterForm.querySelector('[name="estado_verificacion"]') : null;
+        return checkedField ? String(checkedField.value || 'no_verificados') : 'no_verificados';
+    }
+
+    function getSyncElements() {
+        return {
+            syncStatus: document.querySelector('[data-sync-movements-status]'),
+            syncStatusTitle: document.querySelector('[data-sync-movements-title]'),
+            syncStatusMessage: document.querySelector('[data-sync-movements-message]'),
+            syncSpinner: document.querySelector('[data-sync-movements-spinner]')
+        };
+    }
+
+    function syncFilterFormFromDocument(doc) {
+        if (!filterForm) {
+            return;
         }
 
+        const nextFilterForm = doc.querySelector('[data-movement-filter-form]');
+        if (!nextFilterForm) {
+            return;
+        }
+
+        const nextValuesByName = new Map();
+        nextFilterForm.querySelectorAll('[name]').forEach((control) => {
+            nextValuesByName.set(control.getAttribute('name') || '', control.value);
+        });
+
+        filterForm.querySelectorAll('[name]').forEach((control) => {
+            const controlName = control.getAttribute('name') || '';
+            if (!nextValuesByName.has(controlName)) {
+                return;
+            }
+            control.value = nextValuesByName.get(controlName);
+        });
+    }
+
+    function buildFilterUrl() {
+        if (!filterForm) {
+            return window.location.href;
+        }
+
+        const formData = new FormData(filterForm);
+        const params = new URLSearchParams();
+
+        formData.forEach((value, key) => {
+            const normalizedValue = String(value ?? '').trim();
+            if (normalizedValue !== '') {
+                params.set(key, normalizedValue);
+            }
+        });
+
+        params.set('pagina', '1');
+
+        const action = filterForm.getAttribute('action') || window.location.pathname;
+        const queryString = params.toString();
+        return queryString ? `${action}?${queryString}` : action;
+    }
+
+    async function refreshMovementsContent(url, updateHistory = true) {
+        const movementRoot = getMovementRoot();
+        if (!movementRoot) {
+            window.location.assign(url);
+            return;
+        }
+
+        if (movementsRequestController) {
+            movementsRequestController.abort();
+        }
+        movementsRequestController = new AbortController();
+
+        movementRoot.style.opacity = '0.55';
+        movementRoot.style.pointerEvents = 'none';
+
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'text/html'
+                },
+                credentials: 'same-origin',
+                signal: movementsRequestController.signal
+            });
+
+            if (!response.ok) {
+                throw new Error('No se pudo actualizar la tabla de movimientos.');
+            }
+
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const nextRoot = doc.querySelector(movementRootSelector);
+            if (!nextRoot) {
+                throw new Error('La respuesta no contiene la tabla de movimientos.');
+            }
+
+            movementRoot.replaceWith(nextRoot);
+            syncFilterFormFromDocument(doc);
+
+            if (updateHistory) {
+                window.history.replaceState({}, '', url);
+            }
+        } catch (error) {
+            if (error && error.name === 'AbortError') {
+                return;
+            }
+            window.location.assign(url);
+        } finally {
+            const activeRoot = getMovementRoot();
+            if (activeRoot) {
+                activeRoot.style.opacity = '';
+                activeRoot.style.pointerEvents = '';
+            }
+            movementsRequestController = null;
+        }
+    }
+
+    function submitFilterFormImmediately() {
+        const nextUrl = buildFilterUrl();
+        const currentUrl = `${window.location.pathname}${window.location.search}`;
+        if (nextUrl === currentUrl) {
+            return;
+        }
+
+        refreshMovementsContent(nextUrl, true);
+    }
+
+    function scheduleFilterAutoSubmit(delay) {
+        window.clearTimeout(filterAutoSubmitTimer);
+        filterAutoSubmitTimer = window.setTimeout(() => {
+            submitFilterFormImmediately();
+        }, delay);
+    }
+
     function setSyncStatus(type, title, message, isLoading) {
+        const { syncStatus, syncStatusTitle, syncStatusMessage, syncSpinner } = getSyncElements();
         if (!syncStatus || !syncStatusTitle || !syncStatusMessage) {
             return;
         }
@@ -2147,23 +2289,23 @@ require_once __DIR__ . '/includes/header.php';
         }
     }
 
-        function showMovementToast(message) {
-                let toast = document.querySelector('[data-movement-toast]');
-                if (!toast) {
-                        toast = document.createElement('div');
-                        toast.className = 'movement-toast';
-                        toast.setAttribute('data-movement-toast', '1');
-                        document.body.appendChild(toast);
-                }
-
-                toast.textContent = message;
-                toast.classList.add('is-visible');
-
-                window.clearTimeout(showMovementToast._timerId);
-                showMovementToast._timerId = window.setTimeout(() => {
-                        toast.classList.remove('is-visible');
-                }, 2000);
+    function showMovementToast(message) {
+        let toast = document.querySelector('[data-movement-toast]');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.className = 'movement-toast';
+            toast.setAttribute('data-movement-toast', '1');
+            document.body.appendChild(toast);
         }
+
+        toast.textContent = message;
+        toast.classList.add('is-visible');
+
+        window.clearTimeout(showMovementToast._timerId);
+        showMovementToast._timerId = window.setTimeout(() => {
+            toast.classList.remove('is-visible');
+        }, 2000);
+    }
 
     function applyVerifiedDesktopState(movementId) {
         const row = document.querySelector(`[data-movement-row="${movementId}"]`);
@@ -2302,7 +2444,7 @@ require_once __DIR__ . '/includes/header.php';
             }
 
             updateMovementCountersAfterVerify();
-            if (currentCheckedFilter === 'no_verificados') {
+            if (getCurrentCheckedFilter() === 'no_verificados') {
                 await animateVerifiedMovement(String(movementId), true);
             } else {
                 await animateVerifiedMovement(String(movementId), false);
@@ -2316,27 +2458,94 @@ require_once __DIR__ . '/includes/header.php';
         }
     }
 
-    movementForms.forEach((form) => {
-        form.addEventListener('submit', (event) => {
-            event.preventDefault();
-            verifyMovement(form);
+    if (filterForm) {
+        const filterControls = filterForm.querySelectorAll('input[name], select[name]');
+        filterControls.forEach((control) => {
+            const controlType = (control.getAttribute('type') || '').toLowerCase();
+            const isTypingControl = control.tagName === 'INPUT' && (controlType === 'search' || controlType === 'text' || controlType === 'number');
+            const autoSubmitDelay = isTypingControl ? 320 : 120;
+
+            control.addEventListener('input', () => {
+                scheduleFilterAutoSubmit(autoSubmitDelay);
+            });
+
+            control.addEventListener('change', () => {
+                scheduleFilterAutoSubmit(80);
+            });
         });
+
+        filterForm.addEventListener('submit', () => {
+            window.clearTimeout(filterAutoSubmitTimer);
+        });
+    }
+
+    document.addEventListener('click', (event) => {
+        const ajaxLink = event.target instanceof Element ? event.target.closest('a[data-movements-ajax-link="1"]') : null;
+        if (ajaxLink) {
+            event.preventDefault();
+            refreshMovementsContent(ajaxLink.href, true);
+            return;
+        }
+
+        const clearLink = event.target instanceof Element ? event.target.closest('a[data-movement-filter-clear="1"]') : null;
+        if (clearLink && filterForm) {
+            event.preventDefault();
+            const defaults = {
+                referencia: '',
+                fecha_desde: '',
+                fecha_hasta: '',
+                moneda: '',
+                estado_verificacion: 'no_verificados',
+                pedido_relacionado: 'todos',
+                orden: 'fecha_movimiento',
+                direccion: 'desc',
+                por_pagina: '15'
+            };
+
+            Object.keys(defaults).forEach((fieldName) => {
+                const field = filterForm.querySelector(`[name="${fieldName}"]`);
+                if (field) {
+                    field.value = defaults[fieldName];
+                }
+            });
+
+            refreshMovementsContent(clearLink.href, true);
+        }
     });
 
-    if (syncForm) {
-        syncForm.addEventListener('submit', async (event) => {
+    document.addEventListener('submit', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLFormElement)) {
+            return;
+        }
+
+        if (filterForm && target === filterForm) {
+            event.preventDefault();
+            window.clearTimeout(filterAutoSubmitTimer);
+            submitFilterFormImmediately();
+            return;
+        }
+
+        if (target.matches('[data-verify-movement-form]')) {
+            event.preventDefault();
+            verifyMovement(target);
+            return;
+        }
+
+        if (target.matches('[data-sync-movements-form]')) {
             event.preventDefault();
 
-            const formData = new FormData(syncForm);
-            if (syncButton) {
-                syncButton.disabled = true;
-                syncButton.style.opacity = '0.75';
+            const formData = new FormData(target);
+            const submitButton = target.querySelector('[data-sync-movements-button]');
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.style.opacity = '0.75';
             }
 
             setSyncStatus('loading', 'Consultando API bancaria', 'Buscando nuevos movimientos y registrando cambios en la tabla movimientos...', true);
 
             try {
-                const response = await fetch(syncForm.action, {
+                const response = await fetch(target.action, {
                     method: 'POST',
                     headers: {
                         'X-Requested-With': 'XMLHttpRequest',
@@ -2354,25 +2563,26 @@ require_once __DIR__ . '/includes/header.php';
                     setSyncStatus('success', 'Nuevos movimientos disponibles', data.message || 'Se registraron nuevos movimientos en la tabla.', false);
                     showMovementToast('Movimientos actualizados desde la API');
                     await wait(1500);
-                    window.location.reload();
+                    await refreshMovementsContent(`${window.location.pathname}${window.location.search}`, false);
                     return;
                 }
 
                 setSyncStatus('info', 'Sin movimientos nuevos', data.message || 'No hay movimientos nuevos para actualizar.', false);
                 await wait(3000);
+                const { syncStatus } = getSyncElements();
                 if (syncStatus) {
                     syncStatus.classList.add('d-none');
                 }
             } catch (error) {
                 setSyncStatus('error', 'No se pudo actualizar', error.message || 'Ocurrió un error al consultar la API bancaria.', false);
             } finally {
-                if (syncButton) {
-                    syncButton.disabled = false;
-                    syncButton.style.opacity = '1';
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.style.opacity = '1';
                 }
             }
-        });
-    }
+        }
+    });
 })();
 </script>
 <?php endif; ?>
