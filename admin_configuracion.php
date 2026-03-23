@@ -356,7 +356,7 @@ $googleCallbackUrl = google_oauth_callback_url();
             <a href="/admin/configuracion?tab=api-banco" class="neon-tab-link <?= $activeTab === 'api-banco' ? 'active' : '' ?>">Datos conexión Banco</a>
           </div>
           <div class="neon-tabs-item">
-            <a href="/admin/configuracion?tab=api-free-fire" class="neon-tab-link <?= $activeTab === 'api-free-fire' ? 'active' : '' ?>">Datos API Free Fire</a>
+            <a href="/admin/configuracion?tab=api-free-fire" class="neon-tab-link <?= $activeTab === 'api-free-fire' ? 'active' : '' ?>">Datos API</a>
           </div>
           <div class="neon-tabs-item">
             <a href="/admin/configuracion?tab=personalizar-colores" class="neon-tab-link <?= $activeTab === 'personalizar-colores' ? 'active' : '' ?>">Personalizar Colores</a>
@@ -378,7 +378,7 @@ $googleCallbackUrl = google_oauth_callback_url();
       <div class="card neon-card mb-4">
         <div class="card-header text-center py-4" style="background: linear-gradient(90deg, var(--theme-highlight) 0%, var(--theme-success) 100%); color: var(--theme-button-text-strong); border-radius: 16px 16px 0 0;">
           <h2 class="h4 fw-bold mb-0" style="font-family: 'Oxanium', 'Montserrat', 'Arial', sans-serif; letter-spacing: 0.08em;">
-            <?php if ($activeTab === 'correo'): ?>Configuración de correo corporativo<?php elseif ($activeTab === 'cabecera'): ?>Datos de cabecera<?php elseif ($activeTab === 'sociales'): ?>Redes Sociales<?php elseif ($activeTab === 'api-banco'): ?>Datos conexión Banco<?php elseif ($activeTab === 'api-free-fire'): ?>Datos API Free Fire<?php elseif ($activeTab === 'personalizar-colores'): ?>Personalizar Colores<?php elseif ($activeTab === 'ventana-inicial'): ?>Ventana Inicial<?php elseif ($activeTab === 'galeria'): ?>Galería principal del index<?php else: ?>Métodos de Pago<?php endif; ?>
+            <?php if ($activeTab === 'correo'): ?>Configuración de correo corporativo<?php elseif ($activeTab === 'cabecera'): ?>Datos de cabecera<?php elseif ($activeTab === 'sociales'): ?>Redes Sociales<?php elseif ($activeTab === 'api-banco'): ?>Datos conexión Banco<?php elseif ($activeTab === 'api-free-fire'): ?>Datos API<?php elseif ($activeTab === 'personalizar-colores'): ?>Personalizar Colores<?php elseif ($activeTab === 'ventana-inicial'): ?>Ventana Inicial<?php elseif ($activeTab === 'galeria'): ?>Galería principal del index<?php else: ?>Métodos de Pago<?php endif; ?>
           </h2>
         </div>
         <div class="card-body p-4">
@@ -545,27 +545,19 @@ $googleCallbackUrl = google_oauth_callback_url();
           <?php elseif ($activeTab === 'api-free-fire'): ?>
             <form method="post">
               <input type="hidden" name="config_section" value="api-free-fire">
-              <div class="config-section-note mb-4">Configura aquí las credenciales usadas para ejecutar la recarga automática de Free Fire.</div>
+              <div class="config-section-note mb-4">Registra aquí tu API KEY para la integración automática de recargas.</div>
 
               <div class="gallery-table-wrap mb-2">
-                <h3 class="h5 fw-bold text-info mb-3">Datos para API Free Fire</h3>
+                <h3 class="h5 fw-bold text-info mb-3">Datos API</h3>
                 <div class="row g-3">
-                  <div class="col-md-4">
-                    <label class="form-label">usuario</label>
-                    <input type="text" name="ff_api_usuario" value="<?= htmlspecialchars($cfg['ff_api_usuario'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="form-control">
-                  </div>
-                  <div class="col-md-4">
-                    <label class="form-label">clave</label>
-                    <input type="text" name="ff_api_clave" value="<?= htmlspecialchars($cfg['ff_api_clave'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="form-control">
-                  </div>
-                  <div class="col-md-4">
-                    <label class="form-label">tipo</label>
-                    <input type="text" name="ff_api_tipo" value="<?= htmlspecialchars($cfg['ff_api_tipo'] ?? 'recargaFreefire', ENT_QUOTES, 'UTF-8') ?>" class="form-control">
+                  <div class="col-12">
+                    <label class="form-label">API KEY</label>
+                    <input type="text" name="recargas_api_key" value="<?= htmlspecialchars($cfg['recargas_api_key'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="form-control" placeholder="Pega aquí tu API KEY">
                   </div>
                 </div>
               </div>
 
-              <button type="submit" class="neon-btn w-100 py-3 mt-4">Guardar datos API Free Fire</button>
+              <button type="submit" class="neon-btn w-100 py-3 mt-4">Guardar datos API</button>
             </form>
           <?php elseif ($activeTab === 'personalizar-colores'): ?>
             <form method="post">

@@ -29,6 +29,7 @@ INSERT INTO configuracion_general (clave, valor, descripcion) VALUES
 ('ff_api_usuario', '', 'Usuario para la API de Free Fire'),
 ('ff_api_clave', '', 'Clave para la API de Free Fire'),
 ('ff_api_tipo', 'recargaFreefire', 'Tipo para la API de Free Fire'),
+('recargas_api_key', '', 'API KEY para la integracion automatica de recargas'),
 ('theme_bg_main', '#0A0F14', 'Color base del fondo general de la tienda'),
 ('theme_bg_alt', '#0E1722', 'Color usado en degradados y secciones secundarias'),
 ('theme_surface', '#111827', 'Color de tarjetas, paneles y modales'),

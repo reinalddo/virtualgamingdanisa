@@ -861,14 +861,10 @@ switch ($seccion) {
             }
 
             if ($activeTab === 'api-free-fire') {
-                $ffApiUsuario = trim((string) ($_POST['ff_api_usuario'] ?? ''));
-                $ffApiClave = trim((string) ($_POST['ff_api_clave'] ?? ''));
-                $ffApiTipo = trim((string) ($_POST['ff_api_tipo'] ?? 'recargaFreefire'));
+                $recargasApiKey = trim((string) ($_POST['recargas_api_key'] ?? ''));
 
-                store_config_upsert('ff_api_usuario', $ffApiUsuario);
-                store_config_upsert('ff_api_clave', $ffApiClave);
-                store_config_upsert('ff_api_tipo', $ffApiTipo);
-                admin_set_flash('success', 'Datos API Free Fire actualizados.');
+                store_config_upsert('recargas_api_key', $recargasApiKey);
+                admin_set_flash('success', 'Datos API actualizados.');
             }
 
             if ($activeTab === 'personalizar-colores') {

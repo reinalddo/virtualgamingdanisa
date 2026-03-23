@@ -210,6 +210,7 @@ function store_config_descriptions(): array {
         'ff_api_usuario' => 'Usuario para la API de Free Fire',
         'ff_api_clave' => 'Clave para la API de Free Fire',
         'ff_api_tipo' => 'Tipo para la API de Free Fire',
+        'recargas_api_key' => 'API KEY para la integracion automatica de recargas',
     ];
 
     foreach (store_theme_definitions() as $key => $definition) {
@@ -254,6 +255,7 @@ function store_config_defaults(): array {
         'ff_api_usuario' => '',
         'ff_api_clave' => '',
         'ff_api_tipo' => 'recargaFreefire',
+        'recargas_api_key' => '',
     ];
 
     foreach (store_theme_definitions() as $key => $definition) {
