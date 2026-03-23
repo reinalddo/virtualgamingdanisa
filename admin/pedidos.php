@@ -8,6 +8,7 @@ if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'
 }
 
 require_once __DIR__ . '/../includes/db_connect.php';
+require_once __DIR__ . '/../includes/recargas_api.php';
 require_once __DIR__ . '/../includes/header.php';
 
 $statuses = ['pendiente','pagado','enviado','cancelado'];
@@ -33,12 +34,38 @@ function order_meta_value($value): string {
   return $text !== '' ? $text : '—';
 }
 
+function order_player_fields_from_json_admin(?string $json): array {
+  if (!is_string($json) || trim($json) === '') {
+    return [];
+  }
+
+  $decoded = json_decode($json, true);
+  return is_array($decoded) ? $decoded : [];
+}
+
+function order_player_fields_lines(array $order): array {
+  $primaryValue = trim((string) ($order['user_identifier'] ?? ''));
+  $lines = [];
+
+  foreach (order_player_fields_from_json_admin($order['player_fields_json'] ?? null) as $fieldName => $fieldValue) {
+    $value = trim((string) $fieldValue);
+    if ($value === '' || ($primaryValue !== '' && $value === $primaryValue)) {
+      continue;
+    }
+
+    $lines[] = recargas_api_field_label((string) $fieldName) . ': ' . $value;
+  }
+
+  return $lines;
+}
+
 function order_normalize_date_query($value): string {
   $date = trim((string) $value);
   return preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 ? $date : '';
 }
 
 function order_search_index(array $order): string {
+  $playerFieldLines = order_player_fields_lines($order);
   $parts = [
     '#' . ($order['id'] ?? ''),
     $order['creado_en'] ?? '',
@@ -53,6 +80,7 @@ function order_search_index(array $order): string {
     $order['precio'] ?? '',
     $order['cupon'] ?? '',
     $order['estado'] ?? '',
+    implode(' ', $playerFieldLines),
   ];
 
   return strtolower(trim(implode(' ', array_map(static fn ($value) => trim((string) $value), $parts))));
@@ -260,6 +288,7 @@ if ($initialTab === '') {
               </thead>
               <tbody id="table-body-<?= $st ?>">
                 <?php foreach ($list as $order): ?>
+                  <?php $playerFieldLines = order_player_fields_lines($order); ?>
                   <tr id="pedido-<?= $order['id'] ?>" data-order-row="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; color:#fff;">
                     <td style="background:#181f2a; color:#00fff7;">
                       <div style="font-weight:bold;">#<?= $order['id'] ?></div>
@@ -268,6 +297,9 @@ if ($initialTab === '') {
                     <td style="background:#181f2a; color:#00fff7;">
                       <div style="font-weight:bold;"><?= htmlspecialchars($order['user_identifier']) ?></div>
                       <div style="color:#b2f6ff; margin-top:0.2rem;"><?= htmlspecialchars($order['email']) ?></div>
+                      <?php foreach ($playerFieldLines as $playerFieldLine): ?>
+                        <div style="color:#7dd3fc; margin-top:0.2rem; font-size:0.9em;"><?= htmlspecialchars($playerFieldLine) ?></div>
+                      <?php endforeach; ?>
                     </td>
                     <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars(order_meta_value($order['numero_referencia'] ?? '')) ?></td>
                     <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars(order_meta_value($order['telefono_contacto'] ?? '')) ?></td>
@@ -304,6 +336,7 @@ if ($initialTab === '') {
           <!-- Mobile Cards -->
           <div id="cards-<?= $st ?>" class="d-block d-md-none" style="margin-top:1.5rem;">
             <?php foreach ($list as $order): ?>
+              <?php $playerFieldLines = order_player_fields_lines($order); ?>
               <div id="pedido-card-<?= $order['id'] ?>" data-order-card="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem; color:#00fff7; margin-bottom:1.5rem;">
                 <div style="display:flex; align-items:center; justify-content:space-between;">
                   <div style="font-weight:bold; font-size:1.1em; color:#00fff7;">#<?= $order['id'] ?></div>
@@ -311,6 +344,9 @@ if ($initialTab === '') {
                 </div>
                 <div style="margin-top:0.5em; color:#00fff7; font-size:1em;">Cliente: <span style="color:#b2f6ff; font-weight:bold;"><?= htmlspecialchars($order['user_identifier']) ?></span></div>
                 <div style="color:#b2f6ff; font-size:1em;">Email: <?= htmlspecialchars($order['email']) ?></div>
+                <?php foreach ($playerFieldLines as $playerFieldLine): ?>
+                  <div style="color:#7dd3fc; font-size:0.95em;"><?= htmlspecialchars($playerFieldLine) ?></div>
+                <?php endforeach; ?>
                 <div style="color:#b2f6ff; font-size:1em;">Referencia: <?= htmlspecialchars(order_meta_value($order['numero_referencia'] ?? '')) ?></div>
                 <div style="color:#b2f6ff; font-size:1em;">Teléfono: <?= htmlspecialchars(order_meta_value($order['telefono_contacto'] ?? '')) ?></div>
                 <div style="margin-top:0.5em; color:#00fff7; font-size:1em;">Juego: <span style="color:#b2f6ff; font-weight:bold;">

@@ -3,6 +3,7 @@ require_once __DIR__ . "/includes/db_connect.php";
 require_once __DIR__ . "/includes/store_config.php";
 require_once __DIR__ . "/includes/currency.php";
 require_once __DIR__ . "/includes/payment_methods.php";
+require_once __DIR__ . "/includes/recargas_api.php";
 require_once __DIR__ . "/includes/app_session.php";
 currency_ensure_schema();
 $paymentSupportWhatsappBase = store_config_whatsapp_link(store_config_get('whatsapp', ''));
@@ -106,18 +107,36 @@ include __DIR__ . "/includes/header.php";
       </select>
     </div>
   <?php endif; ?>
-  <div class="row row-cols-2 row-cols-sm-3 row-cols-lg-4 g-3 mb-4" id="pack-grid">
-    <?php 
-      $resPaq = $mysqli->query("SELECT * FROM juego_paquetes WHERE juego_id=" . intval($game['id']) . " ORDER BY precio ASC");
-      $paquetes = [];
-      while ($pack = $resPaq->fetch_assoc()) {
-        $paquetes[] = $pack;
+  <?php
+    $usesCatalogApi = trim((string) ($game['categoria_api'] ?? '')) !== '';
+    $apiProductsById = [];
+    if ($usesCatalogApi && recargas_api_is_configured()) {
+      try {
+        foreach (recargas_api_fetch_products_by_category((string) $game['categoria_api']) as $apiProduct) {
+          $apiProductsById[(int) ($apiProduct['id'] ?? 0)] = $apiProduct;
+        }
+      } catch (Throwable $e) {
+        $apiProductsById = [];
       }
-      foreach ($paquetes as $pack):
+    }
+
+    $resPaq = $mysqli->query("SELECT * FROM juego_paquetes WHERE juego_id=" . intval($game['id']) . " ORDER BY precio ASC");
+    $paquetes = [];
+    while ($pack = $resPaq->fetch_assoc()) {
+      $paquetes[] = $pack;
+    }
+  ?>
+  <div class="row row-cols-2 row-cols-sm-3 row-cols-lg-4 g-3 mb-4" id="pack-grid">
+    <?php foreach ($paquetes as $pack):
         $precio_base = floatval($pack['precio']);
         $precio_mostrar = $moneda_actual ? currency_convert_from_base($precio_base, $moneda_actual) : currency_apply_amount_rule($precio_base, null);
         $clave_moneda = $moneda_actual['clave'] ?? 'USD';
         $mostrarDecimales = $moneda_actual ? currency_should_show_decimals($moneda_actual) : true;
+        $packApiId = (int) ($pack['paquete_api'] ?? 0);
+        $apiRequiredFields = [];
+        if ($usesCatalogApi && $packApiId > 0 && isset($apiProductsById[$packApiId])) {
+          $apiRequiredFields = recargas_api_describe_required_fields($apiProductsById[$packApiId]);
+        }
     ?>
       <div class="col">
         <button type="button" class="pack-card card border-info bg-dark text-start w-100 h-100 shadow-sm"
@@ -127,6 +146,7 @@ include __DIR__ . "/includes/header.php";
           data-cantidad="<?= htmlspecialchars($pack['cantidad'], ENT_QUOTES, 'UTF-8') ?>"
           data-price-value="<?= htmlspecialchars((string) $precio_mostrar, ENT_QUOTES, 'UTF-8') ?>"
           data-show-decimals="<?= $mostrarDecimales ? '1' : '0' ?>"
+          data-required-fields="<?= htmlspecialchars(json_encode($apiRequiredFields, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), ENT_QUOTES, 'UTF-8') ?>"
           data-moneda="<?= htmlspecialchars($clave_moneda) ?>">
           <div class="card-body p-0 d-flex flex-column">
             <?php 
@@ -239,9 +259,9 @@ include __DIR__ . "/includes/header.php";
     </div>
   </div>
   <form class="row g-3" id="order-form">
-    <div class="col-md-4">
-      <label class="form-label text-info">ID de usuario</label>
-      <input type="text" name="user_id" placeholder="Ej: 12345678" class="form-control bg-dark text-info border-info" required />
+    <div class="col-md-4" id="player-primary-field">
+      <label class="form-label text-info" id="player-primary-label">ID de usuario</label>
+      <input type="text" id="order-user-id" name="user_id" placeholder="Ej: 12345678" class="form-control bg-dark text-info border-info" required />
     </div>
     <div class="col-md-4">
       <label class="form-label text-info">Correo</label>
@@ -253,6 +273,9 @@ include __DIR__ . "/includes/header.php";
         <input type="text" name="coupon" id="coupon-input" placeholder="Código opcional" pattern="[A-Za-z0-9]+" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" title="Solo letras y números, sin espacios ni caracteres especiales." class="form-control bg-dark text-info border-info" />
         <button type="button" id="apply-coupon-btn" class="btn btn-info fw-bold">Aplicar cupón</button>
       </div>
+    </div>
+    <div class="col-12">
+      <div class="row g-3" id="extra-player-fields"></div>
     </div>
     <div class="col-12">
       <button type="submit" id="buy-button" class="btn btn-success w-100 fw-bold text-uppercase" disabled>
@@ -700,11 +723,16 @@ include __DIR__ . "/includes/header.php";
   const defaultOrderEmail = <?= json_encode($loggedUserEmail, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
   const paymentMethodsByCurrency = <?= json_encode($paymentMethodsByCurrency, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
   const paymentSupportWhatsappBase = <?= json_encode($paymentSupportWhatsappBase, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+  const gameUsesCatalogApi = <?= $usesCatalogApi ? 'true' : 'false' ?>;
   const packCards2 = Array.from(document.querySelectorAll('.pack-card'));
   const selectedPack = document.getElementById("selected-pack");
   const selectedPrice = document.getElementById("selected-price");
   const orderForm = document.getElementById("order-form");
   const buyButton = document.getElementById("buy-button");
+  const playerPrimaryField = document.getElementById('player-primary-field');
+  const playerPrimaryLabel = document.getElementById('player-primary-label');
+  const playerPrimaryInput = document.getElementById('order-user-id');
+  const extraPlayerFields = document.getElementById('extra-player-fields');
   const couponInput = document.getElementById('coupon-input');
   const couponModal = document.getElementById('coupon-modal');
   const loadingModal = document.getElementById('loading-modal');
@@ -748,6 +776,118 @@ include __DIR__ . "/includes/header.php";
   let couponValue = '';
   let activePaymentOrder = null;
   let paymentTimerInterval = null;
+  const defaultPrimaryField = {
+    name: 'id_juego',
+    label: 'ID de usuario',
+    placeholder: 'Ej: 12345678',
+    inputMode: 'text',
+    maxLength: 150
+  };
+
+  function parseRequiredFields(rawValue) {
+    try {
+      const parsed = JSON.parse(String(rawValue || '[]'));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function buildPackStateFromCard(card) {
+    return {
+      id: card.dataset.packageId,
+      name: card.dataset.name,
+      priceValue: Number(card.dataset.priceValue || 0),
+      moneda: card.dataset.moneda,
+      cantidad: card.dataset.cantidad,
+      showDecimals: card.dataset.showDecimals === '1',
+      requiredFields: parseRequiredFields(card.dataset.requiredFields)
+    };
+  }
+
+  function clearFieldValidation(field) {
+    if (!field || !field.name) {
+      return;
+    }
+
+    const errorElem = document.getElementById(field.name + '-error');
+    if (errorElem) {
+      errorElem.remove();
+    }
+  }
+
+  function renderPlayerFields(pack) {
+    const requiredFields = pack && Array.isArray(pack.requiredFields) ? pack.requiredFields : [];
+    const shouldShowPrimaryField = !gameUsesCatalogApi || !pack || requiredFields.length > 0;
+    const primaryConfig = requiredFields[0] || defaultPrimaryField;
+
+    if (playerPrimaryField && playerPrimaryInput && playerPrimaryLabel) {
+      playerPrimaryField.classList.toggle('d-none', !shouldShowPrimaryField);
+      playerPrimaryLabel.textContent = primaryConfig.label || defaultPrimaryField.label;
+      playerPrimaryInput.placeholder = primaryConfig.placeholder || defaultPrimaryField.placeholder;
+      playerPrimaryInput.dataset.apiField = primaryConfig.name || defaultPrimaryField.name;
+      playerPrimaryInput.inputMode = primaryConfig.inputMode || 'text';
+      playerPrimaryInput.maxLength = Number(primaryConfig.maxLength || defaultPrimaryField.maxLength);
+      playerPrimaryInput.required = shouldShowPrimaryField;
+
+      if (!shouldShowPrimaryField) {
+        playerPrimaryInput.value = '';
+        clearFieldValidation(playerPrimaryInput);
+      }
+    }
+
+    if (!extraPlayerFields) {
+      return;
+    }
+
+    extraPlayerFields.innerHTML = '';
+    requiredFields.slice(1).forEach((fieldConfig) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'col-md-4';
+
+      const label = document.createElement('label');
+      label.className = 'form-label text-info';
+      label.textContent = fieldConfig.label || 'Dato adicional';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.name = `player_field_${fieldConfig.name || 'extra'}`;
+      input.dataset.apiField = fieldConfig.name || '';
+      input.placeholder = fieldConfig.placeholder || 'Ingresa el dato';
+      input.className = 'form-control bg-dark text-info border-info';
+      input.required = true;
+      input.inputMode = fieldConfig.inputMode || 'text';
+      input.maxLength = Number(fieldConfig.maxLength || 180);
+
+      wrapper.appendChild(label);
+      wrapper.appendChild(input);
+      extraPlayerFields.appendChild(wrapper);
+    });
+  }
+
+  function collectPlayerFields() {
+    const fields = {};
+
+    if (playerPrimaryField && !playerPrimaryField.classList.contains('d-none') && playerPrimaryInput) {
+      const fieldName = String(playerPrimaryInput.dataset.apiField || defaultPrimaryField.name);
+      const fieldValue = playerPrimaryInput.value.trim();
+      if (fieldValue !== '') {
+        fields[fieldName] = fieldValue;
+      }
+    }
+
+    if (extraPlayerFields) {
+      extraPlayerFields.querySelectorAll('[data-api-field]').forEach((input) => {
+        const fieldName = String(input.dataset.apiField || '');
+        const fieldValue = input.value.trim();
+        if (fieldName !== '' && fieldValue !== '') {
+          fields[fieldName] = fieldValue;
+        }
+      });
+    }
+
+    return fields;
+  }
 
   function scrollToOrderForm() {
     if (!orderForm) {
@@ -1086,6 +1226,7 @@ include __DIR__ . "/includes/header.php";
     couponValue = '';
     activePack = null;
     packCards2.forEach((item) => item.classList.remove('neon-selected'));
+    renderPlayerFields(null);
     updateResumenCompra(null);
     updateButtonState();
   }
@@ -1224,15 +1365,9 @@ include __DIR__ . "/includes/header.php";
         item.classList.remove("neon-selected");
       });
       card.classList.add("neon-selected");
-      activePack = {
-        id: card.dataset.packageId,
-        name: card.dataset.name,
-        priceValue: Number(card.dataset.priceValue || 0),
-        moneda: card.dataset.moneda,
-        cantidad: card.dataset.cantidad,
-        showDecimals: card.dataset.showDecimals === '1'
-      };
+      activePack = buildPackStateFromCard(card);
       updateResumenCompra(activePack);
+      renderPlayerFields(activePack);
       updateButtonState();
       scrollToOrderForm();
     });
@@ -1240,6 +1375,7 @@ include __DIR__ . "/includes/header.php";
   if (packCards2.length) {
     // Ya no se selecciona automáticamente ningún paquete al cargar
   }
+  renderPlayerFields(null);
               if (couponInput) {
               function normalizeCouponCode(value) {
                 return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -1448,17 +1584,12 @@ include __DIR__ . "/includes/header.php";
                   if (activePack) {
                     const selectedCard = packCards2.find((card) => card.classList.contains('neon-selected'));
                     if (selectedCard) {
-                      activePack = {
-                        id: selectedCard.dataset.packageId,
-                        name: selectedCard.dataset.name,
-                        priceValue: Number(selectedCard.dataset.priceValue || 0),
-                        moneda: selectedCard.dataset.moneda,
-                        cantidad: selectedCard.dataset.cantidad,
-                        showDecimals: selectedCard.dataset.showDecimals === '1'
-                      };
+                      activePack = buildPackStateFromCard(selectedCard);
                       updateResumenCompra(activePack);
+                      renderPlayerFields(activePack);
                     }
                   } else {
+                    renderPlayerFields(null);
                     updateResumenCompra(null);
                   }
 
@@ -1530,7 +1661,8 @@ include __DIR__ . "/includes/header.php";
                 const btn = document.getElementById('buy-button');
                 const couponVal = normalizeCouponCode(couponInput.value);
                 couponInput.value = couponVal;
-                const userId = orderForm.user_id.value.trim();
+                const userId = playerPrimaryInput ? playerPrimaryInput.value.trim() : '';
+                const playerFields = collectPlayerFields();
                 const email = orderForm.email.value.trim();
                 const pack = activePack;
                 if (!pack) {
@@ -1617,6 +1749,7 @@ include __DIR__ . "/includes/header.php";
                   price: precioFinal,
                   pack_base: String(normalizeCurrencyAmount(pack.priceValue, pack.showDecimals)),
                   user_identifier: userId,
+                  player_fields_json: JSON.stringify(playerFields),
                   email: email,
                   coupon: couponApplied ? couponVal : '',
                 };
@@ -1637,12 +1770,7 @@ include __DIR__ . "/includes/header.php";
                     // Si no es JSON válido pero la respuesta es 200, asumimos éxito
                     if (res.ok) {
                       showToast('Pedido registrado correctamente', 'success');
-                      orderForm.reset();
-                      couponInput.disabled = false;
-                      applyCouponButton.disabled = false;
-                      couponApplied = false;
-                      selectedPack.textContent = 'Ninguno';
-                      selectedPrice.textContent = `${monedaActualClave} ${formatCurrencyAmount(0, monedaActualMostrarDecimales)}`;
+                      resetCheckoutState();
                       return;
                     } else {
                       showToast('Error de red al registrar pedido', 'error');
