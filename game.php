@@ -731,7 +731,7 @@ include __DIR__ . "/includes/header.php";
   const buyButton = document.getElementById("buy-button");
   const playerPrimaryField = document.getElementById('player-primary-field');
   const playerPrimaryLabel = document.getElementById('player-primary-label');
-  const playerPrimaryInput = document.getElementById('order-user-id');
+  let playerPrimaryInput = document.getElementById('order-user-id');
   const extraPlayerFields = document.getElementById('extra-player-fields');
   const couponInput = document.getElementById('coupon-input');
   const couponModal = document.getElementById('coupon-modal');
@@ -816,18 +816,93 @@ include __DIR__ . "/includes/header.php";
     }
   }
 
+  function normalizeFieldOptions(fieldConfig) {
+    const options = fieldConfig && Array.isArray(fieldConfig.options) ? fieldConfig.options : [];
+    return options
+      .map((option) => {
+        if (option && typeof option === 'object') {
+          return {
+            value: String(option.value || '').trim(),
+            label: String(option.label || option.value || '').trim()
+          };
+        }
+
+        const normalized = String(option || '').trim();
+        return { value: normalized, label: normalized };
+      })
+      .filter((option) => option.value !== '');
+  }
+
+  function createDynamicFieldControl(fieldConfig, fieldNamePrefix) {
+    const options = normalizeFieldOptions(fieldConfig);
+    const controlName = `${fieldNamePrefix}${fieldConfig.name || 'extra'}`;
+    const hasOptions = options.length > 0;
+    const control = document.createElement(hasOptions ? 'select' : 'input');
+
+    if (hasOptions) {
+      control.innerHTML = `<option value="">Selecciona una opcion</option>`;
+      options.forEach((option) => {
+        const optionElement = document.createElement('option');
+        optionElement.value = option.value;
+        optionElement.textContent = option.label || option.value;
+        control.appendChild(optionElement);
+      });
+    } else {
+      control.type = 'text';
+      control.placeholder = fieldConfig.placeholder || 'Ingresa el dato';
+      control.inputMode = fieldConfig.inputMode || 'text';
+      control.maxLength = Number(fieldConfig.maxLength || 180);
+    }
+
+    control.name = controlName;
+    control.dataset.apiField = fieldConfig.name || '';
+    control.className = hasOptions ? 'form-select bg-dark text-info border-info' : 'form-control bg-dark text-info border-info';
+    control.required = true;
+
+    return control;
+  }
+
+  function syncPrimaryControl(fieldConfig) {
+    if (!playerPrimaryField || !playerPrimaryInput) {
+      return;
+    }
+
+    const normalizedConfig = fieldConfig || defaultPrimaryField;
+    const options = normalizeFieldOptions(normalizedConfig);
+    const needsSelect = options.length > 0;
+    const currentIsSelect = playerPrimaryInput.tagName === 'SELECT';
+
+    if (needsSelect !== currentIsSelect) {
+      const replacement = createDynamicFieldControl(normalizedConfig, 'user_');
+      replacement.id = 'order-user-id';
+      replacement.value = '';
+      playerPrimaryInput.replaceWith(replacement);
+      playerPrimaryInput = replacement;
+    }
+
+    playerPrimaryInput.name = 'user_id';
+    playerPrimaryInput.dataset.apiField = normalizedConfig.name || defaultPrimaryField.name;
+    playerPrimaryInput.required = true;
+    if (playerPrimaryInput.tagName === 'SELECT') {
+      playerPrimaryInput.className = 'form-select bg-dark text-info border-info';
+    } else {
+      playerPrimaryInput.className = 'form-control bg-dark text-info border-info';
+      playerPrimaryInput.placeholder = normalizedConfig.placeholder || defaultPrimaryField.placeholder;
+      playerPrimaryInput.inputMode = normalizedConfig.inputMode || 'text';
+      playerPrimaryInput.maxLength = Number(normalizedConfig.maxLength || defaultPrimaryField.maxLength);
+    }
+  }
+
   function renderPlayerFields(pack) {
     const requiredFields = pack && Array.isArray(pack.requiredFields) ? pack.requiredFields : [];
     const shouldShowPrimaryField = !gameUsesCatalogApi || !pack || requiredFields.length > 0;
     const primaryConfig = requiredFields[0] || defaultPrimaryField;
 
     if (playerPrimaryField && playerPrimaryInput && playerPrimaryLabel) {
+      syncPrimaryControl(primaryConfig);
       playerPrimaryField.classList.toggle('d-none', !shouldShowPrimaryField);
       playerPrimaryLabel.textContent = primaryConfig.label || defaultPrimaryField.label;
-      playerPrimaryInput.placeholder = primaryConfig.placeholder || defaultPrimaryField.placeholder;
       playerPrimaryInput.dataset.apiField = primaryConfig.name || defaultPrimaryField.name;
-      playerPrimaryInput.inputMode = primaryConfig.inputMode || 'text';
-      playerPrimaryInput.maxLength = Number(primaryConfig.maxLength || defaultPrimaryField.maxLength);
       playerPrimaryInput.required = shouldShowPrimaryField;
 
       if (!shouldShowPrimaryField) {
@@ -849,15 +924,7 @@ include __DIR__ . "/includes/header.php";
       label.className = 'form-label text-info';
       label.textContent = fieldConfig.label || 'Dato adicional';
 
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.name = `player_field_${fieldConfig.name || 'extra'}`;
-      input.dataset.apiField = fieldConfig.name || '';
-      input.placeholder = fieldConfig.placeholder || 'Ingresa el dato';
-      input.className = 'form-control bg-dark text-info border-info';
-      input.required = true;
-      input.inputMode = fieldConfig.inputMode || 'text';
-      input.maxLength = Number(fieldConfig.maxLength || 180);
+      const input = createDynamicFieldControl(fieldConfig, 'player_field_');
 
       wrapper.appendChild(label);
       wrapper.appendChild(input);

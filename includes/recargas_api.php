@@ -347,6 +347,37 @@ function recargas_api_field_max_length(string $fieldName): int {
     };
 }
 
+function recargas_api_normalize_field_options($options): array {
+    if (!is_array($options)) {
+        return [];
+    }
+
+    $normalized = [];
+    foreach ($options as $key => $option) {
+        if (is_array($option)) {
+            $value = trim((string) ($option['value'] ?? $option['id'] ?? $option['codigo'] ?? ''));
+            $label = trim((string) ($option['label'] ?? $option['nombre'] ?? $option['descripcion'] ?? $value));
+        } elseif (is_string($key) && !is_array($option)) {
+            $value = trim((string) $key);
+            $label = trim((string) $option);
+        } else {
+            $value = trim((string) $option);
+            $label = $value;
+        }
+
+        if ($value === '') {
+            continue;
+        }
+
+        $normalized[] = [
+            'value' => $value,
+            'label' => $label !== '' ? $label : $value,
+        ];
+    }
+
+    return $normalized;
+}
+
 function recargas_api_describe_required_fields(array $product): array {
     $descriptions = [];
 
@@ -361,10 +392,10 @@ function recargas_api_describe_required_fields(array $product): array {
         $descriptions[] = [
             'name' => $fieldName,
             'label' => $description !== '' ? $description : recargas_api_field_label($fieldName),
-            'placeholder' => $description !== '' ? ('Ingresa ' . strtolower($description)) : recargas_api_field_placeholder($fieldName),
+            'placeholder' => $description !== '' ? ('Ingresa ' . $description) : recargas_api_field_placeholder($fieldName),
             'inputMode' => $inputMode,
             'maxLength' => recargas_api_field_max_length($fieldName),
-            'options' => is_array($fieldMeta['options'] ?? null) ? $fieldMeta['options'] : [],
+            'options' => recargas_api_normalize_field_options($fieldMeta['options'] ?? []),
         ];
     }
 
