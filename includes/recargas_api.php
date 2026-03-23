@@ -2,6 +2,10 @@
 
 require_once __DIR__ . '/store_config.php';
 
+function recargas_api_base_url(): string {
+    return 'https://tiendagiftven.tech/api/v1';
+}
+
 function recargas_api_key(): string {
     return trim(store_config_get('recargas_api_key', ''));
 }
@@ -438,4 +442,108 @@ function recargas_api_product_label(array $product): string {
     $manual = !empty($product['procesamiento_manual']) ? 'Manual' : 'Automatico';
 
     return $name . ' [ID ' . $id . '] - $' . $price . ' - ' . $manual;
+}
+
+function recargas_api_get_json_with_fallback(string $url, array $headers = [], int $timeout = 25): array {
+    try {
+        return recargas_api_http_get_json($url, $headers, $timeout, true);
+    } catch (Throwable $e) {
+        $message = (string) $e->getMessage();
+        $sslIssue = stripos($message, 'SSL certificate problem') !== false
+            || stripos($message, 'unable to get local issuer certificate') !== false;
+
+        if (!$sslIssue) {
+            throw $e;
+        }
+
+        return recargas_api_http_get_json($url, $headers, $timeout, false);
+    }
+}
+
+function recargas_api_auth_headers(): array {
+    $apiKey = recargas_api_key();
+    if ($apiKey === '') {
+        throw new RuntimeException('La API KEY de recargas no está configurada.');
+    }
+
+    return ['X-API-Key: ' . $apiKey];
+}
+
+function recargas_api_fetch_order_detail(string $providerOrderId): array {
+    $providerOrderId = trim($providerOrderId);
+    if ($providerOrderId === '') {
+        throw new RuntimeException('El pedido externo no tiene un ID válido.');
+    }
+
+    $response = recargas_api_get_json_with_fallback(
+        recargas_api_base_url() . '/pedido/' . rawurlencode($providerOrderId),
+        recargas_api_auth_headers(),
+        25
+    );
+
+    if (empty($response['ok']) || !isset($response['pedido']) || !is_array($response['pedido'])) {
+        throw new RuntimeException((string) ($response['error'] ?? 'No se pudo consultar el pedido externo.'));
+    }
+
+    return $response['pedido'];
+}
+
+function recargas_api_fetch_recent_orders(): array {
+    $response = recargas_api_get_json_with_fallback(
+        recargas_api_base_url() . '/pedidos',
+        recargas_api_auth_headers(),
+        25
+    );
+
+    if (empty($response['ok']) || !isset($response['pedidos']) || !is_array($response['pedidos'])) {
+        throw new RuntimeException((string) ($response['error'] ?? 'No se pudo consultar la lista de pedidos del proveedor.'));
+    }
+
+    return $response['pedidos'];
+}
+
+function recargas_api_fetch_transactions(): array {
+    $response = recargas_api_get_json_with_fallback(
+        recargas_api_base_url() . '/transacciones',
+        recargas_api_auth_headers(),
+        25
+    );
+
+    if (empty($response['ok']) || !isset($response['transacciones']) || !is_array($response['transacciones'])) {
+        throw new RuntimeException((string) ($response['error'] ?? 'No se pudo consultar el historial de transacciones del proveedor.'));
+    }
+
+    return $response['transacciones'];
+}
+
+function recargas_api_get_webhook(): array {
+    $response = recargas_api_get_json_with_fallback(
+        recargas_api_base_url() . '/webhook',
+        recargas_api_auth_headers(),
+        25
+    );
+
+    if (!isset($response['ok'])) {
+        throw new RuntimeException('No se pudo consultar el webhook configurado en el proveedor.');
+    }
+
+    return $response;
+}
+
+function recargas_api_register_webhook(?string $url): array {
+    $normalizedUrl = trim((string) $url);
+    $payload = ['url' => $normalizedUrl];
+
+    $response = recargas_api_post_json_with_fallback(
+        recargas_api_base_url() . '/webhook',
+        $payload,
+        recargas_api_auth_headers(),
+        25
+    );
+
+    if (!isset($response['ok'])) {
+        throw new RuntimeException('No se pudo registrar el webhook del proveedor.');
+    }
+
+    return $response;
 }

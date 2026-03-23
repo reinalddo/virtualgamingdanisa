@@ -40,6 +40,11 @@ function ensure_pedidos_table(mysqli $mysqli): void {
         ff_api_referencia VARCHAR(120) DEFAULT NULL,
         ff_api_mensaje VARCHAR(255) DEFAULT NULL,
         ff_api_payload LONGTEXT DEFAULT NULL,
+        recargas_api_pedido_id VARCHAR(120) DEFAULT NULL,
+        recargas_api_estado VARCHAR(40) DEFAULT NULL,
+        recargas_api_codigo_entregado LONGTEXT DEFAULT NULL,
+        recargas_api_reembolso DECIMAL(12,2) DEFAULT NULL,
+        recargas_api_ultimo_check DATETIME DEFAULT NULL,
         estado ENUM('pendiente','pagado','enviado','cancelado') NOT NULL DEFAULT 'pendiente',
         creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -72,6 +77,11 @@ function ensure_pedidos_table(mysqli $mysqli): void {
         'ff_api_referencia' => "ALTER TABLE pedidos ADD COLUMN ff_api_referencia VARCHAR(120) NULL AFTER cupon",
         'ff_api_mensaje' => "ALTER TABLE pedidos ADD COLUMN ff_api_mensaje VARCHAR(255) NULL AFTER ff_api_referencia",
         'ff_api_payload' => "ALTER TABLE pedidos ADD COLUMN ff_api_payload LONGTEXT NULL AFTER ff_api_mensaje",
+        'recargas_api_pedido_id' => "ALTER TABLE pedidos ADD COLUMN recargas_api_pedido_id VARCHAR(120) NULL AFTER ff_api_payload",
+        'recargas_api_estado' => "ALTER TABLE pedidos ADD COLUMN recargas_api_estado VARCHAR(40) NULL AFTER recargas_api_pedido_id",
+        'recargas_api_codigo_entregado' => "ALTER TABLE pedidos ADD COLUMN recargas_api_codigo_entregado LONGTEXT NULL AFTER recargas_api_estado",
+        'recargas_api_reembolso' => "ALTER TABLE pedidos ADD COLUMN recargas_api_reembolso DECIMAL(12,2) NULL AFTER recargas_api_codigo_entregado",
+        'recargas_api_ultimo_check' => "ALTER TABLE pedidos ADD COLUMN recargas_api_ultimo_check DATETIME NULL AFTER recargas_api_reembolso",
         'estado_pago_influencer' => "ALTER TABLE pedidos ADD COLUMN estado_pago_influencer ENUM('pendiente','pagado') NOT NULL DEFAULT 'pendiente' AFTER cupon",
         'estado' => "ALTER TABLE pedidos ADD COLUMN estado ENUM('pendiente','pagado','enviado','cancelado') NOT NULL DEFAULT 'pendiente' AFTER cupon",
         'creado_en' => "ALTER TABLE pedidos ADD COLUMN creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER estado",
@@ -1111,6 +1121,54 @@ function primary_player_identifier_from_fields(array $playerFields): ?string {
     return null;
 }
 
+function recargas_api_extract_provider_order_id(array $response): string {
+    return sanitize_str((string) ($response['pedido_id'] ?? $response['referencia'] ?? ''), 120) ?? '';
+}
+
+function provider_status_to_local_status(string $providerStatus): ?string {
+    $normalized = strtolower(trim($providerStatus));
+
+    return match ($normalized) {
+        'completado', 'completed', 'success' => 'enviado',
+        'procesando', 'processing', 'pending' => 'pagado',
+        'cancelado', 'cancelled', 'canceled' => 'cancelado',
+        default => null,
+    };
+}
+
+function extract_provider_order_detail(array $response): array {
+    if (isset($response['pedido']) && is_array($response['pedido'])) {
+        return $response['pedido'];
+    }
+
+    return $response;
+}
+
+function provider_order_display_reference(array $detail, string $fallback = ''): string {
+    $reference = sanitize_str((string) ($detail['referencia'] ?? $detail['pedido_id'] ?? ''), 120);
+    if ($reference === null || $reference === '') {
+        return $fallback;
+    }
+
+    return $reference;
+}
+
+function provider_order_status_message(array $detail, string $fallback = ''): string {
+    $parts = [];
+    foreach (['razon', 'codigo_entregado', 'nombre_jugador'] as $key) {
+        $value = trim((string) ($detail[$key] ?? ''));
+        if ($value !== '') {
+            $parts[] = $value;
+        }
+    }
+
+    if (!empty($parts)) {
+        return implode(' | ', $parts);
+    }
+
+    return $fallback;
+}
+
 function free_fire_api_config(): array {
     return [
         'usuario' => trim(store_config_get('ff_api_usuario', '')),
@@ -1945,6 +2003,146 @@ function notify_catalog_purchase_pending(
     }
 }
 
+function notify_catalog_purchase_cancelled(
+    mysqli $mysqli,
+    array $order,
+    string $providerReference,
+    string $providerMessage,
+    ?float $refundAmount = null
+): void {
+    $orderId = (int) ($order['id'] ?? 0);
+    if ($orderId <= 0) {
+        return;
+    }
+
+    $adminEmail = resolve_admin_email($mysqli);
+    $brandingImages = email_branding_embedded_images();
+    $gameName = trim((string) ($order['juego_nombre'] ?? 'tu juego')) ?: 'tu juego';
+    $providerReferenceText = $providerReference !== '' ? '<p style="margin:0 0 10px;">Referencia del proveedor: <strong>' . email_escape($providerReference) . '</strong></p>' : '';
+    $refundText = $refundAmount !== null ? '<p style="margin:0 0 10px;">Reembolso informado por el proveedor: <strong>' . email_escape(number_format($refundAmount, 2, '.', ',')) . '</strong></p>' : '';
+    $providerMessageText = '<p style="margin:0;">Detalle del proveedor: <strong>' . email_escape($providerMessage !== '' ? $providerMessage : 'No se recibió detalle adicional.') . '</strong></p>';
+
+    $customerHtml = render_order_email('Compra cancelada por proveedor', 'Cliente',
+        '<p style="margin:0 0 10px;">La compra de ' . email_escape($gameName) . ' fue cancelada por el proveedor.</p>'
+        . '<p style="margin:0 0 10px;">Tu pedido quedó cancelado y debes revisar el detalle antes de ofrecer una nueva gestión al cliente.</p>'
+        . $providerReferenceText
+        . $refundText
+        . $providerMessageText,
+        [
+            'order_id' => $orderId,
+            'game_name' => $order['juego_nombre'] ?? '',
+            'pack_name' => $order['paquete_nombre'] ?? '',
+            'pack_amount' => $order['paquete_cantidad'] ?? '',
+            'currency' => $order['moneda'] ?? '',
+            'price' => number_format((float) ($order['precio'] ?? 0), 2, '.', ','),
+            'user_identifier' => $order['user_identifier'] ?? '',
+            'email' => $order['email'] ?? '',
+            'coupon' => $order['cupon'] ?? null,
+            'status' => 'Cancelado',
+        ],
+        '#ef4444'
+    );
+    $adminHtml = render_order_email('Compra API cancelada', 'Administrador',
+        '<p style="margin:0 0 10px;">El proveedor canceló la compra de ' . email_escape($gameName) . '.</p>'
+        . '<p style="margin:0 0 10px;">El pedido local quedó cancelado.</p>'
+        . $providerReferenceText
+        . $refundText
+        . $providerMessageText,
+        [
+            'order_id' => $orderId,
+            'game_name' => $order['juego_nombre'] ?? '',
+            'pack_name' => $order['paquete_nombre'] ?? '',
+            'pack_amount' => $order['paquete_cantidad'] ?? '',
+            'currency' => $order['moneda'] ?? '',
+            'price' => number_format((float) ($order['precio'] ?? 0), 2, '.', ','),
+            'user_identifier' => $order['user_identifier'] ?? '',
+            'email' => $order['email'] ?? '',
+            'coupon' => $order['cupon'] ?? null,
+            'status' => 'Cancelado',
+        ],
+        '#ef4444'
+    );
+
+    if (!empty($order['email']) && filter_var($order['email'], FILTER_VALIDATE_EMAIL)) {
+        send_app_mail((string) $order['email'], "Compra cancelada #{$orderId}", $customerHtml, null, $brandingImages);
+    }
+    if ($adminEmail !== null) {
+        send_app_mail($adminEmail, "Compra API cancelada #{$orderId}", $adminHtml, null, $brandingImages);
+    }
+}
+
+function sync_local_order_with_provider_detail(mysqli $mysqli, array $order, array $providerDetail, bool $notify = true): array {
+    $orderId = (int) ($order['id'] ?? 0);
+    if ($orderId <= 0) {
+        throw new RuntimeException('Pedido local inválido para sincronizar.');
+    }
+
+    $providerStatus = strtolower(trim((string) ($providerDetail['estado'] ?? '')));
+    $providerOrderId = sanitize_str((string) ($providerDetail['id'] ?? $order['recargas_api_pedido_id'] ?? ''), 120) ?? '';
+    $providerReference = provider_order_display_reference($providerDetail, (string) ($order['ff_api_referencia'] ?? ''));
+    $providerMessage = provider_order_status_message($providerDetail, (string) ($order['ff_api_mensaje'] ?? ''));
+    $providerCode = trim((string) ($providerDetail['codigo_entregado'] ?? ''));
+    $refundAmount = isset($providerDetail['reembolso']) && is_numeric($providerDetail['reembolso'])
+        ? round((float) $providerDetail['reembolso'], 2)
+        : null;
+    $localStatus = provider_status_to_local_status($providerStatus) ?? (string) ($order['estado'] ?? 'pagado');
+    $payloadJson = json_encode($providerDetail, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($payloadJson)) {
+        $payloadJson = (string) ($order['ff_api_payload'] ?? '');
+    }
+
+    $stmt = $mysqli->prepare("UPDATE pedidos SET ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_codigo_entregado = ?, recargas_api_reembolso = ?, recargas_api_ultimo_check = NOW(), estado = ? WHERE id = ? LIMIT 1");
+    if (!$stmt) {
+        throw new RuntimeException('No se pudo preparar la sincronización del pedido local.');
+    }
+
+    $stmt->bind_param(
+        'ssssssdsi',
+        $providerReference,
+        $providerMessage,
+        $payloadJson,
+        $providerOrderId,
+        $providerStatus,
+        $providerCode,
+        $refundAmount,
+        $localStatus,
+        $orderId
+    );
+    if (!$stmt->execute()) {
+        $stmt->close();
+        throw new RuntimeException('No se pudo actualizar el pedido local con el estado del proveedor.');
+    }
+    $stmt->close();
+
+    $updatedOrder = fetch_order_by_id($mysqli, $orderId) ?: $order;
+    $previousStatus = (string) ($order['estado'] ?? '');
+    if ($notify && $localStatus !== $previousStatus) {
+        if ($localStatus === 'enviado') {
+            notify_free_fire_recharge_success(
+                $mysqli,
+                $updatedOrder,
+                'Proveedor API',
+                (string) ($updatedOrder['numero_referencia'] ?? ''),
+                (string) ($updatedOrder['telefono_contacto'] ?? ''),
+                $providerReference,
+                $providerMessage !== '' ? $providerMessage : 'Pedido completado por el proveedor.'
+            );
+        } elseif ($localStatus === 'cancelado') {
+            notify_catalog_purchase_cancelled($mysqli, $updatedOrder, $providerReference, $providerMessage, $refundAmount);
+        }
+    }
+
+    return [
+        'order' => $updatedOrder,
+        'provider_status' => $providerStatus,
+        'local_status' => $localStatus,
+        'provider_reference' => $providerReference,
+        'provider_message' => $providerMessage,
+        'refund_amount' => $refundAmount,
+        'provider_code' => $providerCode,
+    ];
+}
+
 function notify_bank_payment_verified_paid(
     mysqli $mysqli,
     array $order,
@@ -2479,14 +2677,16 @@ if ($action === 'submit_payment') {
             $providerReference = (string) ($freeFireResult['reference'] ?? '');
             $providerMessage = (string) ($freeFireResult['message'] ?? 'No se recibió mensaje del proveedor.');
             $providerPayload = json_encode($freeFireResult['payload'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $providerOrderId = recargas_api_extract_provider_order_id((array) ($freeFireResult['payload'] ?? []));
+            $providerState = strtolower(trim((string) (($freeFireResult['payload']['estado'] ?? ''))));
 
             if (!empty($freeFireResult['success'])) {
                 $verifiedStatus = 'enviado';
-                $verifyStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
+                $verifyStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), estado = ? WHERE id = ? AND estado = 'pendiente'");
                 if (!$verifyStmt) {
                     json_error('No se pudo confirmar la recarga automáticamente.', 500);
                 }
-                $verifyStmt->bind_param('ssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $verifiedStatus, $orderId);
+                $verifyStmt->bind_param('ssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $verifiedStatus, $orderId);
                 if (!$verifyStmt->execute()) {
                     $verifyStmt->close();
                     json_error('No se pudo actualizar el pedido tras procesar la recarga.', 500);
@@ -2510,11 +2710,11 @@ if ($action === 'submit_payment') {
 
             if (!empty($freeFireResult['accepted'])) {
                 $paidStatus = 'pagado';
-                $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
+                $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), estado = ? WHERE id = ? AND estado = 'pendiente'");
                 if (!$paidStmt) {
                     json_error('No se pudo actualizar el pedido tras validar el pago.', 500);
                 }
-                $paidStmt->bind_param('ssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $paidStatus, $orderId);
+                $paidStmt->bind_param('ssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $paidStatus, $orderId);
                 if (!$paidStmt->execute()) {
                     $paidStmt->close();
                     json_error('No se pudo marcar el pedido como pagado.', 500);
@@ -2699,6 +2899,159 @@ if ($action === 'cancel_order') {
         'message' => $result['message'],
         'estado' => 'cancelado',
         'order_id' => $orderId,
+    ]);
+}
+
+if ($action === 'sync_provider_status') {
+    $adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+    if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {
+        json_error('No autorizado', 403);
+    }
+
+    $orderId = intval($_POST['order_id'] ?? $_GET['order_id'] ?? 0);
+    if ($orderId <= 0) {
+        json_error('Pedido inválido.');
+    }
+
+    $order = fetch_order_by_id($mysqli, $orderId);
+    if (!$order) {
+        json_error('Pedido no encontrado.', 404);
+    }
+
+    $providerOrderId = trim((string) ($order['recargas_api_pedido_id'] ?? ''));
+    if ($providerOrderId === '') {
+        json_error('Este pedido aún no tiene un ID externo del proveedor.');
+    }
+
+    try {
+        $providerDetail = recargas_api_fetch_order_detail($providerOrderId);
+        $syncResult = sync_local_order_with_provider_detail($mysqli, $order, $providerDetail, true);
+    } catch (Throwable $e) {
+        json_error($e->getMessage(), 502);
+    }
+
+    json_response([
+        'ok' => true,
+        'message' => 'Pedido sincronizado correctamente con el proveedor.',
+        'order_id' => $orderId,
+        'estado' => $syncResult['local_status'],
+        'provider_status' => $syncResult['provider_status'],
+        'provider_reference' => $syncResult['provider_reference'],
+        'provider_message' => $syncResult['provider_message'],
+        'provider_code' => $syncResult['provider_code'],
+        'refund_amount' => $syncResult['refund_amount'],
+    ]);
+}
+
+if ($action === 'provider_recent_orders') {
+    $adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+    if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {
+        json_error('No autorizado', 403);
+    }
+
+    try {
+        $orders = recargas_api_fetch_recent_orders();
+    } catch (Throwable $e) {
+        json_error($e->getMessage(), 502);
+    }
+
+    json_response(['ok' => true, 'pedidos' => $orders]);
+}
+
+if ($action === 'provider_transactions') {
+    $adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+    if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {
+        json_error('No autorizado', 403);
+    }
+
+    try {
+        $transactions = recargas_api_fetch_transactions();
+    } catch (Throwable $e) {
+        json_error($e->getMessage(), 502);
+    }
+
+    json_response(['ok' => true, 'transacciones' => $transactions]);
+}
+
+if ($action === 'provider_get_webhook') {
+    $adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+    if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {
+        json_error('No autorizado', 403);
+    }
+
+    try {
+        $webhook = recargas_api_get_webhook();
+    } catch (Throwable $e) {
+        json_error($e->getMessage(), 502);
+    }
+
+    json_response($webhook);
+}
+
+if ($action === 'provider_register_webhook') {
+    $adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+    if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {
+        json_error('No autorizado', 403);
+    }
+
+    $url = trim((string) ($_POST['url'] ?? ''));
+    try {
+        $response = recargas_api_register_webhook($url);
+    } catch (Throwable $e) {
+        json_error($e->getMessage(), 502);
+    }
+
+    json_response($response);
+}
+
+if ($action === 'provider_webhook') {
+    $providerOrderId = sanitize_str((string) ($_POST['pedido_id'] ?? ''), 120);
+    $providerStatus = trim((string) ($_POST['estado'] ?? ''));
+    $providerReference = trim((string) ($_POST['referencia'] ?? ''));
+    $providerReason = trim((string) ($_POST['razon'] ?? ''));
+    $providerName = trim((string) ($_POST['nombre_jugador'] ?? ''));
+    $providerCode = trim((string) ($_POST['codigo_entregado'] ?? ''));
+    $refundAmount = isset($_POST['reembolso']) && is_numeric($_POST['reembolso']) ? (float) $_POST['reembolso'] : null;
+
+    if ($providerOrderId === null || $providerOrderId === '') {
+        json_error('Webhook sin pedido_id.', 422);
+    }
+
+    $stmt = $mysqli->prepare('SELECT pedidos.*, UNIX_TIMESTAMP(creado_en) AS creado_en_ts FROM pedidos WHERE recargas_api_pedido_id = ? LIMIT 1');
+    if (!$stmt) {
+        json_error('No se pudo preparar la búsqueda del pedido local.', 500);
+    }
+    $stmt->bind_param('s', $providerOrderId);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $order = $res ? $res->fetch_assoc() : null;
+    $stmt->close();
+
+    if (!$order) {
+        json_error('No se encontró un pedido local asociado a ese pedido externo.', 404);
+    }
+
+    $providerDetail = [
+        'id' => $providerOrderId,
+        'estado' => $providerStatus,
+        'referencia' => $providerReference,
+        'razon' => $providerReason,
+        'nombre_jugador' => $providerName,
+        'codigo_entregado' => $providerCode,
+        'reembolso' => $refundAmount,
+    ];
+
+    try {
+        $syncResult = sync_local_order_with_provider_detail($mysqli, $order, $providerDetail, true);
+    } catch (Throwable $e) {
+        json_error($e->getMessage(), 500);
+    }
+
+    json_response([
+        'ok' => true,
+        'message' => 'Webhook procesado correctamente.',
+        'order_id' => (int) ($order['id'] ?? 0),
+        'estado' => $syncResult['local_status'],
     ]);
 }
 

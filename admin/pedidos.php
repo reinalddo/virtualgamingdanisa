@@ -59,6 +59,16 @@ function order_player_fields_lines(array $order): array {
   return $lines;
 }
 
+function order_provider_status_label(array $order): string {
+  $providerOrderId = trim((string) ($order['recargas_api_pedido_id'] ?? ''));
+  if ($providerOrderId === '') {
+    return '';
+  }
+
+  $providerStatus = trim((string) ($order['recargas_api_estado'] ?? ''));
+  return 'Proveedor: ' . ($providerStatus !== '' ? $providerStatus : 'sin estado') . ' | ID externo: ' . $providerOrderId;
+}
+
 function order_normalize_date_query($value): string {
   $date = trim((string) $value);
   return preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 ? $date : '';
@@ -289,6 +299,7 @@ if ($initialTab === '') {
               <tbody id="table-body-<?= $st ?>">
                 <?php foreach ($list as $order): ?>
                   <?php $playerFieldLines = order_player_fields_lines($order); ?>
+                  <?php $providerStatusLine = order_provider_status_label($order); ?>
                   <tr id="pedido-<?= $order['id'] ?>" data-order-row="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; color:#fff;">
                     <td style="background:#181f2a; color:#00fff7;">
                       <div style="font-weight:bold;">#<?= $order['id'] ?></div>
@@ -300,6 +311,9 @@ if ($initialTab === '') {
                       <?php foreach ($playerFieldLines as $playerFieldLine): ?>
                         <div style="color:#7dd3fc; margin-top:0.2rem; font-size:0.9em;"><?= htmlspecialchars($playerFieldLine) ?></div>
                       <?php endforeach; ?>
+                      <?php if ($providerStatusLine !== ''): ?>
+                        <div style="color:#fbbf24; margin-top:0.2rem; font-size:0.85em;"><?= htmlspecialchars($providerStatusLine) ?></div>
+                      <?php endif; ?>
                     </td>
                     <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars(order_meta_value($order['numero_referencia'] ?? '')) ?></td>
                     <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars(order_meta_value($order['telefono_contacto'] ?? '')) ?></td>
@@ -326,6 +340,9 @@ if ($initialTab === '') {
                           <option value="<?= $opt ?>"><?= htmlspecialchars(order_status_label($opt)) ?></option>
                         <?php endforeach; ?>
                       </select>
+                      <?php if (!empty($order['recargas_api_pedido_id'])): ?>
+                        <button type="button" class="btn btn-outline-warning btn-sm mt-2 js-sync-provider" data-order-id="<?= (int) $order['id'] ?>">Sincronizar API</button>
+                      <?php endif; ?>
                     </td>
                   </tr>
                 <?php endforeach; ?>
@@ -337,6 +354,7 @@ if ($initialTab === '') {
           <div id="cards-<?= $st ?>" class="d-block d-md-none" style="margin-top:1.5rem;">
             <?php foreach ($list as $order): ?>
               <?php $playerFieldLines = order_player_fields_lines($order); ?>
+              <?php $providerStatusLine = order_provider_status_label($order); ?>
               <div id="pedido-card-<?= $order['id'] ?>" data-order-card="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem; color:#00fff7; margin-bottom:1.5rem;">
                 <div style="display:flex; align-items:center; justify-content:space-between;">
                   <div style="font-weight:bold; font-size:1.1em; color:#00fff7;">#<?= $order['id'] ?></div>
@@ -347,6 +365,9 @@ if ($initialTab === '') {
                 <?php foreach ($playerFieldLines as $playerFieldLine): ?>
                   <div style="color:#7dd3fc; font-size:0.95em;"><?= htmlspecialchars($playerFieldLine) ?></div>
                 <?php endforeach; ?>
+                <?php if ($providerStatusLine !== ''): ?>
+                  <div style="color:#fbbf24; font-size:0.9em;"><?= htmlspecialchars($providerStatusLine) ?></div>
+                <?php endif; ?>
                 <div style="color:#b2f6ff; font-size:1em;">Referencia: <?= htmlspecialchars(order_meta_value($order['numero_referencia'] ?? '')) ?></div>
                 <div style="color:#b2f6ff; font-size:1em;">Teléfono: <?= htmlspecialchars(order_meta_value($order['telefono_contacto'] ?? '')) ?></div>
                 <div style="margin-top:0.5em; color:#00fff7; font-size:1em;">Juego: <span style="color:#b2f6ff; font-weight:bold;">
@@ -372,6 +393,9 @@ if ($initialTab === '') {
                     ><?= htmlspecialchars(order_status_label($opt)) ?></button>
                   <?php endforeach; ?>
                 </div>
+                <?php if (!empty($order['recargas_api_pedido_id'])): ?>
+                  <button type="button" class="btn btn-outline-warning btn-sm mt-3 js-sync-provider" data-order-id="<?= (int) $order['id'] ?>">Sincronizar API</button>
+                <?php endif; ?>
               </div>
             <?php endforeach; ?>
           </div>
@@ -711,6 +735,34 @@ if ($initialTab === '') {
           alert(err.message || 'No se pudo cambiar el estado');
         } finally {
           relatedButtons.forEach(item => { item.disabled = false; });
+          setAdminLoadingVisible(false);
+        }
+      });
+    });
+
+    document.querySelectorAll('.js-sync-provider').forEach(button => {
+      button.addEventListener('click', async () => {
+        const orderId = button.dataset.orderId;
+        if (!orderId) {
+          return;
+        }
+
+        button.disabled = true;
+        setAdminLoadingVisible(true);
+        try {
+          const fd = new FormData();
+          fd.append('action', 'sync_provider_status');
+          fd.append('order_id', orderId);
+          const res = await fetch('/api/pedidos.php', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            throw new Error((data && data.message) ? data.message : 'No se pudo sincronizar el pedido con la API.');
+          }
+          window.location.reload();
+        } catch (err) {
+          alert(err.message || 'No se pudo sincronizar el pedido con la API.');
+        } finally {
+          button.disabled = false;
           setAdminLoadingVisible(false);
         }
       });
