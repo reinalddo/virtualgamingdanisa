@@ -1,6 +1,7 @@
 <?php
 // admin/juegos.php - Gestión de juegos y características
 require_once '../includes/db_connect.php';
+require_once '../includes/recargas_api.php';
 
 function ensure_juegos_api_free_fire_column(mysqli $mysqli): void {
     $result = $mysqli->query("SHOW COLUMNS FROM juegos LIKE 'api_free_fire'");
@@ -16,8 +17,26 @@ function ensure_juegos_activo_column(mysqli $mysqli): void {
     }
 }
 
+function ensure_juegos_categoria_api_column(mysqli $mysqli): void {
+    $result = $mysqli->query("SHOW COLUMNS FROM juegos LIKE 'categoria_api'");
+    if (!($result instanceof mysqli_result) || $result->num_rows === 0) {
+        $mysqli->query("ALTER TABLE juegos ADD COLUMN categoria_api VARCHAR(100) NULL AFTER api_free_fire");
+    }
+}
+
 ensure_juegos_api_free_fire_column($mysqli);
 ensure_juegos_activo_column($mysqli);
+ensure_juegos_categoria_api_column($mysqli);
+
+$apiCategories = [];
+$apiCategoriesError = null;
+if (recargas_api_is_configured()) {
+    try {
+        $apiCategories = recargas_api_fetch_categories();
+    } catch (Throwable $e) {
+        $apiCategoriesError = $e->getMessage();
+    }
+}
 
 if (isset($_GET['toggle_activo'])) {
     $toggleId = intval($_GET['toggle_activo']);
@@ -76,7 +95,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_juego_submit'], 
     $edit_nombre = trim($_POST['edit_nombre']);
     $edit_descripcion = trim($_POST['edit_descripcion']);
     $edit_popular = isset($_POST['edit_popular']) ? 1 : 0;
-    $edit_api_free_fire = isset($_POST['edit_api_free_fire']) ? 1 : 0;
+    $edit_categoria_api = trim((string) ($_POST['edit_categoria_api'] ?? ''));
+    $edit_api_free_fire = $edit_categoria_api !== '' ? 1 : 0;
     $edit_activo = isset($_POST['edit_activo']) ? 1 : 0;
     $edit_moneda_fija_id = isset($_POST['edit_moneda_fija_id']) && $_POST['edit_moneda_fija_id'] !== '' ? intval($_POST['edit_moneda_fija_id']) : null;
     $edit_imagen = null;
@@ -108,17 +128,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_juego_submit'], 
         }
     }
     if ($edit_imagen && $edit_imagen_paquete) {
-        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, imagen=?, imagen_paquete=?, popular=?, api_free_fire=?, activo=?, moneda_fija_id=? WHERE id=?");
-        $stmt->bind_param('ssssiiiii', $edit_nombre, $edit_descripcion, $edit_imagen, $edit_imagen_paquete, $edit_popular, $edit_api_free_fire, $edit_activo, $edit_moneda_fija_id, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, imagen=?, imagen_paquete=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
+        $stmt->bind_param('ssssiisiii', $edit_nombre, $edit_descripcion, $edit_imagen, $edit_imagen_paquete, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
     } elseif ($edit_imagen) {
-        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, imagen=?, popular=?, api_free_fire=?, activo=?, moneda_fija_id=? WHERE id=?");
-        $stmt->bind_param('sssiiiii', $edit_nombre, $edit_descripcion, $edit_imagen, $edit_popular, $edit_api_free_fire, $edit_activo, $edit_moneda_fija_id, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, imagen=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
+        $stmt->bind_param('sssiisiii', $edit_nombre, $edit_descripcion, $edit_imagen, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
     } elseif ($edit_imagen_paquete) {
-        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, imagen_paquete=?, popular=?, api_free_fire=?, activo=?, moneda_fija_id=? WHERE id=?");
-        $stmt->bind_param('sssiiiii', $edit_nombre, $edit_descripcion, $edit_imagen_paquete, $edit_popular, $edit_api_free_fire, $edit_activo, $edit_moneda_fija_id, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, imagen_paquete=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
+        $stmt->bind_param('sssiisiii', $edit_nombre, $edit_descripcion, $edit_imagen_paquete, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
     } else {
-        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, popular=?, api_free_fire=?, activo=?, moneda_fija_id=? WHERE id=?");
-        $stmt->bind_param('ssiiiii', $edit_nombre, $edit_descripcion, $edit_popular, $edit_api_free_fire, $edit_activo, $edit_moneda_fija_id, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
+        $stmt->bind_param('ssiisiii', $edit_nombre, $edit_descripcion, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
     }
     $stmt->execute();
     header('Location: /admin/juegos');
@@ -131,7 +151,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nombre'], $_POST['des
     $descripcion = trim($_POST['descripcion']);
     $moneda_fija_id = !empty($_POST['moneda_fija_id']) ? intval($_POST['moneda_fija_id']) : null;
     $popular = isset($_POST['popular']) ? 1 : 0;
-    $api_free_fire = isset($_POST['api_free_fire']) ? 1 : 0;
+    $categoria_api = trim((string) ($_POST['categoria_api'] ?? ''));
+    $api_free_fire = $categoria_api !== '' ? 1 : 0;
     $activo = isset($_POST['activo']) ? 1 : 0;
     $imagen = null;
     $imagen_paquete = null;
@@ -161,8 +182,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nombre'], $_POST['des
             }
         }
     }
-    $stmt = $mysqli->prepare("INSERT INTO juegos (nombre, imagen, imagen_paquete, descripcion, moneda_fija_id, popular, api_free_fire, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param('ssssiiii', $nombre, $imagen, $imagen_paquete, $descripcion, $moneda_fija_id, $popular, $api_free_fire, $activo);
+    $stmt = $mysqli->prepare("INSERT INTO juegos (nombre, imagen, imagen_paquete, descripcion, moneda_fija_id, popular, api_free_fire, categoria_api, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param('ssssiiisi', $nombre, $imagen, $imagen_paquete, $descripcion, $moneda_fija_id, $popular, $api_free_fire, $categoria_api, $activo);
     $stmt->execute();
     $juego_id = $mysqli->insert_id;
     // Características seleccionadas del select múltiple
@@ -249,8 +270,14 @@ if ($resPaquetes instanceof mysqli_result) {
                 <label class="form-check-label text-neon" for="editPopularCheck">Marcar como popular</label>
             </div>
             <div class="form-check mb-3">
-                <input type="checkbox" name="edit_api_free_fire" class="form-check-input" id="editApiFreeFireCheck" <?= !empty($juego_edit['api_free_fire']) ? 'checked' : '' ?>>
-                <label class="form-check-label text-neon" for="editApiFreeFireCheck">Este Juego usa API Free Fire</label>
+                <label class="form-label text-neon" for="editCategoriaApiInput">Categoría API</label>
+                <select name="edit_categoria_api" id="editCategoriaApiInput" class="form-select" style="background:#222c3a;color:#00fff7;border:1px solid #00fff7;">
+                    <option value="">Proceso manual / sin API</option>
+                    <?php foreach ($apiCategories as $apiCategory): ?>
+                        <option value="<?= htmlspecialchars($apiCategory, ENT_QUOTES, 'UTF-8') ?>" <?= (string) ($juego_edit['categoria_api'] ?? '') === (string) $apiCategory ? 'selected' : '' ?>><?= htmlspecialchars($apiCategory, ENT_QUOTES, 'UTF-8') ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <div class="form-text mt-2" style="color:#8be9fd;">Selecciona o escribe la categoría exacta del catálogo remoto. Si queda vacía, el juego seguirá siendo manual.</div>
             </div>
             <div class="form-check mb-3">
                 <input type="checkbox" name="edit_activo" class="form-check-input" id="editActivoCheck" <?= !isset($juego_edit['activo']) || !empty($juego_edit['activo']) ? 'checked' : '' ?>>
@@ -289,8 +316,14 @@ if ($resPaquetes instanceof mysqli_result) {
                 <label class="form-check-label" for="popularCheck" style="color:#00fff7;">Popular</label>
             </div>
             <div class="form-check mt-3">
-                <input type="checkbox" name="api_free_fire" class="form-check-input" id="apiFreeFireCheck">
-                <label class="form-check-label" for="apiFreeFireCheck" style="color:#00fff7;">Este Juego usa API Free Fire</label>
+                <label class="form-label" for="categoriaApiInput" style="color:#00fff7;">Categoría API</label>
+                <select name="categoria_api" id="categoriaApiInput" class="form-select" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                    <option value="">Proceso manual / sin API</option>
+                    <?php foreach ($apiCategories as $apiCategory): ?>
+                        <option value="<?= htmlspecialchars($apiCategory, ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($apiCategory, ENT_QUOTES, 'UTF-8') ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <div class="form-text mt-2" style="color:#8be9fd;">Selecciona o escribe la categoría exacta del catálogo remoto. Si queda vacía, el juego quedará en proceso manual.</div>
             </div>
             <div class="form-check mt-3">
                 <input type="checkbox" name="activo" class="form-check-input" id="activoCheck" checked>
@@ -343,6 +376,11 @@ if ($resPaquetes instanceof mysqli_result) {
             <button type="submit" class="btn btn-info w-100" style="background:#00fff7; color:#222; border:none; box-shadow:0 0 8px #00fff7;">Agregar juego</button>
         </div>
     </form>
+    <?php if (!recargas_api_is_configured()): ?>
+        <div class="alert alert-warning mt-3">Configura primero la API KEY en Datos API para poder sugerir categorías remotas.</div>
+    <?php elseif ($apiCategoriesError !== null): ?>
+        <div class="alert alert-warning mt-3">No se pudieron cargar las categorías remotas: <?= htmlspecialchars($apiCategoriesError, ENT_QUOTES, 'UTF-8') ?></div>
+    <?php endif; ?>
     <h3 class="text-info mt-5 mb-3">Juegos existentes</h3>
     <div class="table-responsive d-none d-md-block">
         <table class="table align-middle" style="background:#181f2a; color:#00fff7; border-radius:12px;">
@@ -373,8 +411,10 @@ if ($resPaquetes instanceof mysqli_result) {
                     <td style="background:#181f2a; color:#00fff7;">
                         <div class="fw-semibold"><?= htmlspecialchars($j['nombre']) ?></div>
                         <div class="small" style="color:#b2f6ff;"><?= $totalPaquetes ?> paquete<?= $totalPaquetes === 1 ? '' : 's' ?> registrado<?= $totalPaquetes === 1 ? '' : 's' ?></div>
-                        <?php if (!empty($j['api_free_fire'])): ?>
-                            <div class="small mt-1"><span style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.2rem 0.55rem;border-radius:999px;border:1px solid rgba(52,211,153,0.7);background:rgba(16,185,129,0.12);color:#6ee7b7;font-weight:700;letter-spacing:0.04em;">API Free Fire</span></div>
+                        <?php if (!empty($j['categoria_api'])): ?>
+                            <div class="small mt-1"><span style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.2rem 0.55rem;border-radius:999px;border:1px solid rgba(52,211,153,0.7);background:rgba(16,185,129,0.12);color:#6ee7b7;font-weight:700;letter-spacing:0.04em;">API: <?= htmlspecialchars($j['categoria_api']) ?></span></div>
+                        <?php elseif (!empty($j['api_free_fire'])): ?>
+                            <div class="small mt-1"><span style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.2rem 0.55rem;border-radius:999px;border:1px solid rgba(245,158,11,0.7);background:rgba(245,158,11,0.12);color:#fcd34d;font-weight:700;letter-spacing:0.04em;">Legacy API</span></div>
                         <?php endif; ?>
                     </td>
                     <td class="text-center" style="background:#181f2a;">
@@ -450,8 +490,10 @@ if ($resPaquetes instanceof mysqli_result) {
                                 <?php endif; ?>
                             </div>
                             <div style="font-size:0.9rem; color:#b2f6ff;"><?= $totalPaquetes ?> paquete<?= $totalPaquetes === 1 ? '' : 's' ?> registrado<?= $totalPaquetes === 1 ? '' : 's' ?></div>
-                            <?php if (!empty($j['api_free_fire'])): ?>
-                                <div class="mt-1"><span style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.2rem 0.55rem;border-radius:999px;border:1px solid rgba(52,211,153,0.7);background:rgba(16,185,129,0.12);color:#6ee7b7;font-weight:700;font-size:0.78rem;letter-spacing:0.04em;">API Free Fire</span></div>
+                            <?php if (!empty($j['categoria_api'])): ?>
+                                <div class="mt-1"><span style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.2rem 0.55rem;border-radius:999px;border:1px solid rgba(52,211,153,0.7);background:rgba(16,185,129,0.12);color:#6ee7b7;font-weight:700;font-size:0.78rem;letter-spacing:0.04em;">API: <?= htmlspecialchars($j['categoria_api']) ?></span></div>
+                            <?php elseif (!empty($j['api_free_fire'])): ?>
+                                <div class="mt-1"><span style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.2rem 0.55rem;border-radius:999px;border:1px solid rgba(245,158,11,0.7);background:rgba(245,158,11,0.12);color:#fcd34d;font-weight:700;font-size:0.78rem;letter-spacing:0.04em;">Legacy API</span></div>
                             <?php endif; ?>
                             <div class="text-muted" style="font-size:0.85rem; color:#b2f6ff;">ID: <?= $j['id'] ?></div>
                             <div class="mt-2">

@@ -2,6 +2,7 @@
 // admin/paquetes.php - Gestión de paquetes de un juego
 
 require_once '../includes/db_connect.php';
+require_once '../includes/recargas_api.php';
 
 function ensure_juego_paquetes_monto_ff_column(mysqli $mysqli): void {
     $result = $mysqli->query("SHOW COLUMNS FROM juego_paquetes LIKE 'monto_ff'");
@@ -14,6 +15,13 @@ function ensure_juego_paquetes_activo_column(mysqli $mysqli): void {
     $result = $mysqli->query("SHOW COLUMNS FROM juego_paquetes LIKE 'activo'");
     if (!($result instanceof mysqli_result) || $result->num_rows === 0) {
         $mysqli->query("ALTER TABLE juego_paquetes ADD COLUMN activo TINYINT(1) DEFAULT 1 NULL AFTER imagen_icono");
+    }
+}
+
+function ensure_juego_paquetes_paquete_api_column(mysqli $mysqli): void {
+    $result = $mysqli->query("SHOW COLUMNS FROM juego_paquetes LIKE 'paquete_api'");
+    if (!($result instanceof mysqli_result) || $result->num_rows === 0) {
+        $mysqli->query("ALTER TABLE juego_paquetes ADD COLUMN paquete_api INT NULL AFTER monto_ff");
     }
 }
 
@@ -40,6 +48,7 @@ function free_fire_api_amount_label(string $amount): string {
 
 ensure_juego_paquetes_monto_ff_column($mysqli);
 ensure_juego_paquetes_activo_column($mysqli);
+ensure_juego_paquetes_paquete_api_column($mysqli);
 
 $juego_id = 0;
 if (isset($_GET['juego'])) {
@@ -58,7 +67,23 @@ $res_juego->bind_param('i', $juego_id);
 $res_juego->execute();
 $juego = $res_juego->get_result()->fetch_assoc();
 $freeFireApiOptions = free_fire_api_amount_options();
-$usesFreeFireApi = !empty($juego['api_free_fire']);
+$juegoCategoriaApi = trim((string) ($juego['categoria_api'] ?? ''));
+$usesApiCatalog = $juegoCategoriaApi !== '';
+$usesLegacyFreeFire = !$usesApiCatalog && !empty($juego['api_free_fire']);
+$apiProducts = [];
+$apiProductsById = [];
+$apiProductsError = null;
+
+if ($usesApiCatalog) {
+    try {
+        $apiProducts = recargas_api_fetch_products_by_category($juegoCategoriaApi);
+        foreach ($apiProducts as $apiProduct) {
+            $apiProductsById[(int) ($apiProduct['id'] ?? 0)] = $apiProduct;
+        }
+    } catch (Throwable $e) {
+        $apiProductsError = $e->getMessage();
+    }
+}
 
 if (isset($_GET['toggle_activo'])) {
     $toggleId = intval($_GET['toggle_activo']);
@@ -99,7 +124,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_paquete_id'])) {
     $edit_id = intval($_POST['edit_paquete_id']);
     $edit_nombre = trim($_POST['edit_nombre'] ?? '');
     $edit_clave = trim($_POST['edit_clave'] ?? '');
-    $edit_monto_ff = $usesFreeFireApi ? trim((string) ($_POST['edit_monto_ff'] ?? '')) : null;
+    $edit_monto_ff = $usesLegacyFreeFire ? trim((string) ($_POST['edit_monto_ff'] ?? '')) : '';
+    $edit_paquete_api = $usesApiCatalog ? trim((string) ($_POST['edit_paquete_api'] ?? '')) : '';
     $edit_cantidad = intval($_POST['edit_cantidad'] ?? 0);
     $edit_precio = floatval($_POST['edit_precio'] ?? 0);
     $edit_activo = isset($_POST['edit_activo']) ? 1 : 0;
@@ -118,11 +144,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_paquete_id'])) {
         }
     }
     if ($edit_imagen_icono) {
-        $stmt = $mysqli->prepare("UPDATE juego_paquetes SET nombre=?, clave=?, monto_ff=?, cantidad=?, precio=?, imagen_icono=?, activo=? WHERE id=?");
-        $stmt->bind_param('sssidsii', $edit_nombre, $edit_clave, $edit_monto_ff, $edit_cantidad, $edit_precio, $edit_imagen_icono, $edit_activo, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juego_paquetes SET nombre=?, clave=?, monto_ff=NULLIF(?, ''), paquete_api=NULLIF(?, ''), cantidad=?, precio=?, imagen_icono=?, activo=? WHERE id=?");
+        $stmt->bind_param('ssssidsii', $edit_nombre, $edit_clave, $edit_monto_ff, $edit_paquete_api, $edit_cantidad, $edit_precio, $edit_imagen_icono, $edit_activo, $edit_id);
     } else {
-        $stmt = $mysqli->prepare("UPDATE juego_paquetes SET nombre=?, clave=?, monto_ff=?, cantidad=?, precio=?, activo=? WHERE id=?");
-        $stmt->bind_param('sssidii', $edit_nombre, $edit_clave, $edit_monto_ff, $edit_cantidad, $edit_precio, $edit_activo, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juego_paquetes SET nombre=?, clave=?, monto_ff=NULLIF(?, ''), paquete_api=NULLIF(?, ''), cantidad=?, precio=?, activo=? WHERE id=?");
+        $stmt->bind_param('ssssidii', $edit_nombre, $edit_clave, $edit_monto_ff, $edit_paquete_api, $edit_cantidad, $edit_precio, $edit_activo, $edit_id);
     }
     $stmt->execute();
     header('Location: /admin/paquetes/' . $juego_id);
@@ -133,7 +159,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_paquete_id'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nombre'], $_POST['clave'], $_POST['cantidad'], $_POST['precio'])) {
     $nombre = trim($_POST['nombre']);
     $clave = trim($_POST['clave']);
-    $monto_ff = $usesFreeFireApi ? trim((string) ($_POST['monto_ff'] ?? '')) : null;
+    $monto_ff = $usesLegacyFreeFire ? trim((string) ($_POST['monto_ff'] ?? '')) : '';
+    $paquete_api = $usesApiCatalog ? trim((string) ($_POST['paquete_api'] ?? '')) : '';
     $cantidad = intval($_POST['cantidad']);
     $precio = floatval($_POST['precio']);
     $activo = isset($_POST['activo']) ? 1 : 0;
@@ -151,8 +178,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nombre'], $_POST['cla
             }
         }
     }
-    $stmt = $mysqli->prepare("INSERT INTO juego_paquetes (juego_id, nombre, clave, monto_ff, cantidad, precio, imagen_icono, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param('isssidsi', $juego_id, $nombre, $clave, $monto_ff, $cantidad, $precio, $imagen_icono, $activo);
+    $stmt = $mysqli->prepare("INSERT INTO juego_paquetes (juego_id, nombre, clave, monto_ff, paquete_api, cantidad, precio, imagen_icono, activo) VALUES (?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?)");
+    $stmt->bind_param('issssidsi', $juego_id, $nombre, $clave, $monto_ff, $paquete_api, $cantidad, $precio, $imagen_icono, $activo);
     $stmt->execute();
     header('Location: /admin/paquetes/' . $juego_id);
     exit;
@@ -179,7 +206,18 @@ include '../includes/header.php';
             <label class="form-label text-neon">Clave interna</label>
             <input type="text" name="clave" placeholder="Clave" required class="form-control" style="background:#222c3a; color:#22d3ee; border:1px solid #22d3ee;">
         </div>
-        <?php if ($usesFreeFireApi): ?>
+        <?php if ($usesApiCatalog): ?>
+            <div class="col-md-6">
+                <label class="form-label text-neon">Producto API</label>
+                <select name="paquete_api" required class="form-select" style="background:#222c3a; color:#22d3ee; border:1px solid #22d3ee;">
+                    <option value="">Selecciona un producto API</option>
+                    <?php foreach ($apiProducts as $apiProduct): ?>
+                        <option value="<?= (int) ($apiProduct['id'] ?? 0) ?>"><?= htmlspecialchars(recargas_api_product_label($apiProduct), ENT_QUOTES, 'UTF-8') ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <div class="form-text mt-2" style="color:#8be9fd;">Categoria API vinculada: <?= htmlspecialchars($juegoCategoriaApi, ENT_QUOTES, 'UTF-8') ?></div>
+            </div>
+        <?php elseif ($usesLegacyFreeFire): ?>
             <div class="col-md-6">
                 <label class="form-label text-neon">Montos (API)</label>
                 <select name="monto_ff" required class="form-select" style="background:#222c3a; color:#22d3ee; border:1px solid #22d3ee;">
@@ -216,6 +254,11 @@ include '../includes/header.php';
             <button type="submit" class="btn neon-btn-info w-100">Agregar paquete</button>
         </div>
     </form>
+    <?php if ($usesApiCatalog && $apiProductsError !== null): ?>
+        <div class="alert alert-warning mb-4">No se pudieron cargar los productos de la categoria API: <?= htmlspecialchars($apiProductsError, ENT_QUOTES, 'UTF-8') ?></div>
+    <?php elseif ($usesApiCatalog && empty($apiProducts)): ?>
+        <div class="alert alert-warning mb-4">No hay productos disponibles en la API para la categoria <?= htmlspecialchars($juegoCategoriaApi, ENT_QUOTES, 'UTF-8') ?>.</div>
+    <?php endif; ?>
     <div class="table-responsive d-none d-md-block">
         <table class="table table-dark table-bordered align-middle" style="border:2px solid #22d3ee;">
             <thead>
@@ -223,7 +266,9 @@ include '../includes/header.php';
                     <th style="color:#22d3ee; background:#181f2a;">Icono</th>
                     <th style="color:#22d3ee; background:#181f2a;">Nombre</th>
                     <th style="color:#22d3ee; background:#181f2a;">Clave</th>
-                    <?php if ($usesFreeFireApi): ?>
+                    <?php if ($usesApiCatalog): ?>
+                        <th style="color:#22d3ee; background:#181f2a;">Producto API</th>
+                    <?php elseif ($usesLegacyFreeFire): ?>
                         <th style="color:#22d3ee; background:#181f2a;">Monto FF</th>
                     <?php endif; ?>
                     <th style="color:#22d3ee; background:#181f2a;">Activo</th>
@@ -245,7 +290,10 @@ include '../includes/header.php';
                     </td>
                     <td class="fw-semibold text-neon" style="background:#181f2a; color:#22d3ee;"><?= htmlspecialchars($p['nombre']) ?></td>
                     <td style="background:#181f2a; color:#fff;"><?= htmlspecialchars($p['clave']) ?></td>
-                    <?php if ($usesFreeFireApi): ?>
+                    <?php if ($usesApiCatalog): ?>
+                        <?php $apiProductId = (int) ($p['paquete_api'] ?? 0); ?>
+                        <td style="background:#181f2a; color:#fff;"><?= htmlspecialchars($apiProductId > 0 && isset($apiProductsById[$apiProductId]) ? recargas_api_product_label($apiProductsById[$apiProductId]) : ($apiProductId > 0 ? 'ID ' . $apiProductId : '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                    <?php elseif ($usesLegacyFreeFire): ?>
                         <td style="background:#181f2a; color:#fff;"><?= htmlspecialchars(!empty($p['monto_ff']) ? free_fire_api_amount_label((string) $p['monto_ff']) : '—') ?></td>
                     <?php endif; ?>
                     <td class="text-center" style="background:#181f2a;">
@@ -295,7 +343,10 @@ include '../includes/header.php';
                         </div>
                     </div>
                     <div style="color:#fff;"><span class="fw-semibold">Clave:</span> <?= htmlspecialchars($p['clave']) ?></div>
-                    <?php if ($usesFreeFireApi): ?>
+                    <?php if ($usesApiCatalog): ?>
+                        <?php $apiProductId = (int) ($p['paquete_api'] ?? 0); ?>
+                        <div style="color:#fff;"><span class="fw-semibold">Producto API:</span> <?= htmlspecialchars($apiProductId > 0 && isset($apiProductsById[$apiProductId]) ? recargas_api_product_label($apiProductsById[$apiProductId]) : ($apiProductId > 0 ? 'ID ' . $apiProductId : '—'), ENT_QUOTES, 'UTF-8') ?></div>
+                    <?php elseif ($usesLegacyFreeFire): ?>
                         <div style="color:#fff;"><span class="fw-semibold">Monto FF:</span> <?= htmlspecialchars(!empty($p['monto_ff']) ? free_fire_api_amount_label((string) $p['monto_ff']) : '—') ?></div>
                     <?php endif; ?>
                     <div class="text-neon" style="color:#22d3ee;"><span class="fw-semibold">Precio:</span> $<?= number_format($p['precio'], 2) ?></div>
@@ -335,7 +386,18 @@ if (isset($_GET['editar'])) {
             <label class="form-label text-neon">Clave interna</label>
             <input type="text" name="edit_clave" value="<?= htmlspecialchars($paq_edit['clave']) ?>" required class="form-control" style="background:#222c3a;color:#22d3ee;border:1px solid #22d3ee;">
         </div>
-        <?php if ($usesFreeFireApi): ?>
+        <?php if ($usesApiCatalog): ?>
+            <div class="mb-3">
+                <label class="form-label text-neon">Producto API</label>
+                <select name="edit_paquete_api" required class="form-select" style="background:#222c3a;color:#22d3ee;border:1px solid #22d3ee;">
+                    <option value="">Selecciona un producto API</option>
+                    <?php foreach ($apiProducts as $apiProduct): ?>
+                        <option value="<?= (int) ($apiProduct['id'] ?? 0) ?>" <?= (int) ($paq_edit['paquete_api'] ?? 0) === (int) ($apiProduct['id'] ?? 0) ? 'selected' : '' ?>><?= htmlspecialchars(recargas_api_product_label($apiProduct), ENT_QUOTES, 'UTF-8') ?></option>
+                    <?php endforeach; ?>
+                </select>
+                <div class="form-text mt-2" style="color:#8be9fd;">Categoria API vinculada: <?= htmlspecialchars($juegoCategoriaApi, ENT_QUOTES, 'UTF-8') ?></div>
+            </div>
+        <?php elseif ($usesLegacyFreeFire): ?>
             <div class="mb-3">
                 <label class="form-label text-neon">Montos (API)</label>
                 <select name="edit_monto_ff" required class="form-select" style="background:#222c3a;color:#22d3ee;border:1px solid #22d3ee;">
