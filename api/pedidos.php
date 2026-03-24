@@ -1389,6 +1389,13 @@ function provider_message_indicates_transport_timeout(string $message): bool {
         || str_contains($normalized, 'timed out')
         || str_contains($normalized, 'timeout')
         || str_contains($normalized, '0 bytes received')
+        || str_contains($normalized, 'respuesta vacía')
+        || str_contains($normalized, 'respuesta vacia')
+        || str_contains($normalized, 'no devolvió un json válido')
+        || str_contains($normalized, 'no devolvio un json valido')
+        || str_contains($normalized, 'no devolvió un json')
+        || str_contains($normalized, 'no devolvio un json')
+        || str_contains($normalized, 'incompleta')
         || str_contains($normalized, 'empty reply from server')
         || str_contains($normalized, 'connection reset by peer')
         || str_contains($normalized, 'failed to connect');

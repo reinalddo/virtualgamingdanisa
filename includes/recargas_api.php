@@ -12,6 +12,32 @@ function recargas_api_decode_response_body(?string $body): ?array {
     return is_array($data) ? $data : null;
 }
 
+function recargas_api_response_snippet(?string $body, int $limit = 240): string {
+    $body = trim((string) $body);
+    if ($body === '') {
+        return '[empty body]';
+    }
+
+    $body = preg_replace('/\s+/u', ' ', $body) ?? $body;
+    if (function_exists('mb_substr')) {
+        return mb_substr($body, 0, $limit, 'UTF-8');
+    }
+
+    return substr($body, 0, $limit);
+}
+
+function recargas_api_invalid_json_exception(string $url, ?int $status, ?string $body): RuntimeException {
+    $statusLabel = $status !== null && $status > 0 ? (string) $status : 'n/a';
+    $snippet = recargas_api_response_snippet($body);
+    error_log('TVG recargas invalid JSON response [' . $statusLabel . '] ' . $url . ' :: ' . $snippet);
+
+    if (trim((string) $body) === '') {
+        return new RuntimeException('La API de recargas devolvió una respuesta vacía o incompleta.');
+    }
+
+    return new RuntimeException('La API de recargas no devolvió un JSON válido.');
+}
+
 function recargas_api_error_message_from_response(?array $data, int $status): string {
     if (is_array($data)) {
         $candidates = [
@@ -89,6 +115,7 @@ function recargas_api_lookup_timeout_seconds(): int {
 function recargas_api_http_get_json(string $url, array $headers = [], int $timeout = 20, bool $verifySsl = true): array {
     $body = null;
     $connectTimeout = min(recargas_api_connect_timeout_seconds(), max(1, $timeout));
+    $status = null;
 
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
@@ -134,7 +161,7 @@ function recargas_api_http_get_json(string $url, array $headers = [], int $timeo
 
     $data = recargas_api_decode_response_body((string) $body);
     if (!is_array($data)) {
-        throw new RuntimeException('La API de recargas no devolvió un JSON válido.');
+        throw recargas_api_invalid_json_exception($url, $status, (string) $body);
     }
 
     if (isset($status) && $status >= 400) {
@@ -147,6 +174,7 @@ function recargas_api_http_get_json(string $url, array $headers = [], int $timeo
 function recargas_api_http_post_json(string $url, array $payload, array $headers = [], int $timeout = 25, bool $verifySsl = true): array {
     $body = null;
     $connectTimeout = min(recargas_api_connect_timeout_seconds(), max(1, $timeout));
+    $status = null;
     $requestBody = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if (!is_string($requestBody)) {
         throw new RuntimeException('No se pudo serializar la solicitud JSON para la API de recargas.');
@@ -201,7 +229,7 @@ function recargas_api_http_post_json(string $url, array $payload, array $headers
 
     $data = recargas_api_decode_response_body((string) $body);
     if (!is_array($data)) {
-        throw new RuntimeException('La API de recargas no devolvió un JSON válido.');
+        throw recargas_api_invalid_json_exception($url, $status, (string) $body);
     }
 
     if (isset($status) && $status >= 400) {
