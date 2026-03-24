@@ -1090,6 +1090,37 @@ function normalize_player_field_key(string $key): string {
     return preg_replace('/[^a-z0-9_]+/u', '', $normalized) ?? '';
 }
 
+function player_field_aliases(string $fieldName): array {
+    $normalized = normalize_player_field_key($fieldName);
+    if ($normalized === '') {
+        return [];
+    }
+
+    $aliasGroups = [
+        ['id_juego', 'player_id', 'playerid', 'user_id', 'userid', 'input1'],
+        ['zone_id', 'zoneid', 'zona', 'zone', 'server_id', 'serverid', 'input2'],
+    ];
+
+    foreach ($aliasGroups as $group) {
+        if (in_array($normalized, $group, true)) {
+            return $group;
+        }
+    }
+
+    return [$normalized];
+}
+
+function resolve_player_field_value(array $submittedFields, string $requiredFieldName, ?string $fallbackValue = null): string {
+    foreach (player_field_aliases($requiredFieldName) as $alias) {
+        $value = trim((string) ($submittedFields[$alias] ?? ''));
+        if ($value !== '') {
+            return $value;
+        }
+    }
+
+    return trim((string) $fallbackValue);
+}
+
 function parse_player_fields_request($raw): array {
     if (is_string($raw)) {
         $trimmed = trim($raw);
@@ -1147,10 +1178,8 @@ function build_catalog_player_fields(array $product, ?string $userIdentifier, ar
             continue;
         }
 
-        $value = trim((string) ($submittedFields[$fieldName] ?? ''));
-        if ($value === '' && $index === 0) {
-            $value = trim((string) $userIdentifier);
-        }
+        $fallbackValue = $index === 0 ? $userIdentifier : null;
+        $value = resolve_player_field_value($submittedFields, $fieldName, $fallbackValue);
 
         if ($value === '') {
             throw new RuntimeException('Falta el campo requerido: ' . recargas_api_field_label($fieldName) . '.');
