@@ -1326,6 +1326,18 @@ function recargas_api_result_is_success(array $response): bool {
     return recargas_api_purchase_is_completed($response);
 }
 
+function provider_message_indicates_pending_lookup(string $message): bool {
+    $normalized = mb_strtolower(trim(strip_tags($message)), 'UTF-8');
+    if ($normalized === '') {
+        return false;
+    }
+
+    return str_contains($normalized, 'not found order by referenceno')
+        || str_contains($normalized, 'no found order by referenceno')
+        || str_contains($normalized, 'not found order')
+        || str_contains($normalized, 'reference no');
+}
+
 function execute_catalog_api_purchase(int $productId, ?string $userIdentifier, array $playerFields = []): array {
     if ($productId <= 0) {
         throw new RuntimeException('El paquete seleccionado no tiene un producto API configurado.');
@@ -2906,9 +2918,12 @@ if ($action === 'submit_payment') {
                 });
             }
 
-            if (!empty($freeFireResult['accepted'])) {
+            $manualProcessing = !empty($freeFireResult['manual_processing']);
+            $acceptedLike = !empty($freeFireResult['accepted'])
+                || ($manualProcessing && provider_message_indicates_pending_lookup($providerMessage));
+
+            if ($acceptedLike) {
                 $paidStatus = 'pagado';
-                $manualProcessing = !empty($freeFireResult['manual_processing']);
                 $providerHistoryJson = append_provider_history(
                     $updatedOrder['recargas_api_historial_json'] ?? null,
                     build_provider_history_entry(
