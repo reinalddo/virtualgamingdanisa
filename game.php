@@ -306,6 +306,8 @@ include __DIR__ . "/includes/header.php";
       <div class="modal-content bg-dark border-info text-center p-4">
         <h4 id="payment-status-modal-title" class="fw-bold text-info mb-3">Estado de la operación</h4>
         <p id="payment-status-modal-message" class="text-light mb-4 small">Tu solicitud fue procesada.</p>
+        <div id="payment-status-modal-reasons" class="d-none payment-reasons-card mb-3 text-start"></div>
+        <div id="payment-status-modal-actions" class="d-none payment-support-actions mb-4"></div>
         <button type="button" id="payment-status-modal-accept" class="btn btn-info fw-bold px-4">Aceptar</button>
       </div>
     </div>
@@ -741,6 +743,8 @@ include __DIR__ . "/includes/header.php";
   const paymentStatusModal = document.getElementById('payment-status-modal');
   const paymentStatusModalTitle = document.getElementById('payment-status-modal-title');
   const paymentStatusModalMessage = document.getElementById('payment-status-modal-message');
+  const paymentStatusModalReasons = document.getElementById('payment-status-modal-reasons');
+  const paymentStatusModalActions = document.getElementById('payment-status-modal-actions');
   const paymentStatusModalAccept = document.getElementById('payment-status-modal-accept');
   const modalCouponName = document.getElementById('modal-coupon-name');
   const modalYes = document.getElementById('modal-yes');
@@ -1114,6 +1118,14 @@ include __DIR__ . "/includes/header.php";
       paymentModalActions.className = 'd-none payment-support-actions mb-4';
       paymentModalActions.innerHTML = '';
     }
+    if (paymentStatusModalReasons) {
+      paymentStatusModalReasons.className = 'd-none payment-reasons-card mb-3 text-start';
+      paymentStatusModalReasons.innerHTML = '';
+    }
+    if (paymentStatusModalActions) {
+      paymentStatusModalActions.className = 'd-none payment-support-actions mb-4';
+      paymentStatusModalActions.innerHTML = '';
+    }
   }
 
   if (paymentStatusModalAccept) {
@@ -1157,6 +1169,40 @@ include __DIR__ . "/includes/header.php";
     return reasons;
   }
 
+  function renderSupportCard(container, title, summary, steps, reasons) {
+    if (!container) {
+      return;
+    }
+
+    container.className = `payment-reasons-card mb-3${container.id === 'payment-status-modal-reasons' ? ' text-start' : ''}`;
+    container.innerHTML = `
+      <div class="payment-reasons-title">${escapePaymentHtml(title)}</div>
+      <div class="payment-reasons-summary">${escapePaymentHtml(summary)}</div>
+      <ol class="payment-reasons-steps">${steps.map((step) => `<li>${escapePaymentHtml(step)}</li>`).join('')}</ol>
+      ${reasons.length ? `
+        <div class="payment-reasons-caption">Detalle detectado por el sistema:</div>
+        <ul>${reasons.map((reason) => `<li>${escapePaymentHtml(reason)}</li>`).join('')}</ul>
+      ` : ''}
+    `;
+  }
+
+  function renderSupportActionLinks(reference, totalText) {
+    const whatsappUrl = buildPaymentSupportWhatsappUrl(activePaymentOrder ? activePaymentOrder.orderId : '', reference, totalText);
+    if (!whatsappUrl) {
+      return;
+    }
+
+    const actionHtml = `<a href="${escapePaymentHtml(whatsappUrl)}" target="_blank" rel="noopener noreferrer" class="payment-support-link">Contactar al administrador por WhatsApp</a>`;
+    if (paymentModalActions) {
+      paymentModalActions.className = 'payment-support-actions mb-4';
+      paymentModalActions.innerHTML = actionHtml;
+    }
+    if (paymentStatusModalActions) {
+      paymentStatusModalActions.className = 'payment-support-actions mb-4';
+      paymentStatusModalActions.innerHTML = actionHtml;
+    }
+  }
+
   function renderPaymentFailureDetails(data, reference, totalText) {
     clearPaymentSupportUi();
     const failureType = String((data && data.failure_type) || 'server_or_data_mismatch');
@@ -1194,28 +1240,13 @@ include __DIR__ . "/includes/header.php";
     }
 
     if (paymentModalReasons && reasons.length) {
-      paymentModalReasons.className = 'payment-reasons-card mb-3';
-      paymentModalReasons.innerHTML = `
-        <div class="payment-reasons-title">${escapePaymentHtml(title)}</div>
-        <div class="payment-reasons-summary">${escapePaymentHtml(summary)}</div>
-        <ol class="payment-reasons-steps">${steps.map((step) => `<li>${escapePaymentHtml(step)}</li>`).join('')}</ol>
-        <div class="payment-reasons-caption">Detalle detectado por el sistema:</div>
-        <ul>${reasons.map((reason) => `<li>${escapePaymentHtml(reason)}</li>`).join('')}</ul>
-      `;
-    } else if (paymentModalReasons) {
-      paymentModalReasons.className = 'payment-reasons-card mb-3';
-      paymentModalReasons.innerHTML = `
-        <div class="payment-reasons-title">${escapePaymentHtml(title)}</div>
-        <div class="payment-reasons-summary">${escapePaymentHtml(summary)}</div>
-        <ol class="payment-reasons-steps">${steps.map((step) => `<li>${escapePaymentHtml(step)}</li>`).join('')}</ol>
-      `;
+      renderSupportCard(paymentModalReasons, title, summary, steps, reasons);
+      renderSupportCard(paymentStatusModalReasons, title, summary, steps, reasons);
+    } else {
+      renderSupportCard(paymentModalReasons, title, summary, steps, []);
+      renderSupportCard(paymentStatusModalReasons, title, summary, steps, []);
     }
-
-    const whatsappUrl = buildPaymentSupportWhatsappUrl(activePaymentOrder ? activePaymentOrder.orderId : '', reference, totalText);
-    if (paymentModalActions && whatsappUrl) {
-      paymentModalActions.className = 'payment-support-actions mb-4';
-      paymentModalActions.innerHTML = `<a href="${escapePaymentHtml(whatsappUrl)}" target="_blank" rel="noopener noreferrer" class="payment-support-link">Contactar al administrador por WhatsApp</a>`;
-    }
+    renderSupportActionLinks(reference, totalText);
     scrollPaymentModalToTop();
   }
 
@@ -1240,24 +1271,9 @@ include __DIR__ . "/includes/header.php";
       ];
     }
 
-    if (paymentModalReasons) {
-      paymentModalReasons.className = 'payment-reasons-card mb-3';
-      paymentModalReasons.innerHTML = `
-        <div class="payment-reasons-title">${escapePaymentHtml(title)}</div>
-        <div class="payment-reasons-summary">${escapePaymentHtml(summary)}</div>
-        <ol class="payment-reasons-steps">${steps.map((step) => `<li>${escapePaymentHtml(step)}</li>`).join('')}</ol>
-        ${reasons.length ? `
-          <div class="payment-reasons-caption">Respuesta reportada por la API:</div>
-          <ul>${reasons.map((reason) => `<li>${escapePaymentHtml(reason)}</li>`).join('')}</ul>
-        ` : ''}
-      `;
-    }
-
-    const whatsappUrl = buildPaymentSupportWhatsappUrl(activePaymentOrder ? activePaymentOrder.orderId : '', reference, totalText);
-    if (paymentModalActions && whatsappUrl) {
-      paymentModalActions.className = 'payment-support-actions mb-4';
-      paymentModalActions.innerHTML = `<a href="${escapePaymentHtml(whatsappUrl)}" target="_blank" rel="noopener noreferrer" class="payment-support-link">Contactar al administrador por WhatsApp</a>`;
-    }
+    renderSupportCard(paymentModalReasons, title, summary, steps, reasons);
+    renderSupportCard(paymentStatusModalReasons, title, summary, steps, reasons);
+    renderSupportActionLinks(reference, totalText);
 
     scrollPaymentModalToTop();
   }
