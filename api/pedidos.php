@@ -2287,6 +2287,46 @@ function sync_local_order_with_provider_detail(mysqli $mysqli, array $order, arr
     ];
 }
 
+function try_auto_sync_provider_order(mysqli $mysqli, array $order, int $attempts = 3, int $delaySeconds = 2): ?array {
+    $providerOrderId = trim((string) ($order['recargas_api_pedido_id'] ?? ''));
+    if ($providerOrderId === '') {
+        return null;
+    }
+
+    $attempts = max(1, $attempts);
+    $delaySeconds = max(0, $delaySeconds);
+    $latestSync = null;
+
+    for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+        try {
+            $providerDetail = recargas_api_fetch_order_detail($providerOrderId);
+            $latestSync = sync_local_order_with_provider_detail($mysqli, $order, $providerDetail, true);
+
+            if (in_array((string) ($latestSync['local_status'] ?? ''), ['enviado', 'cancelado'], true)) {
+                return $latestSync;
+            }
+
+            $order = is_array($latestSync['order'] ?? null) ? $latestSync['order'] : (fetch_order_by_id($mysqli, (int) ($order['id'] ?? 0)) ?: $order);
+        } catch (Throwable $e) {
+            $latestSync = [
+                'order' => $order,
+                'provider_status' => trim((string) ($order['recargas_api_estado'] ?? '')),
+                'local_status' => trim((string) ($order['estado'] ?? 'pagado')),
+                'provider_reference' => trim((string) ($order['ff_api_referencia'] ?? '')),
+                'provider_message' => trim((string) $e->getMessage()),
+                'refund_amount' => isset($order['recargas_api_reembolso']) ? (float) $order['recargas_api_reembolso'] : null,
+                'provider_code' => trim((string) ($order['recargas_api_codigo_entregado'] ?? '')),
+            ];
+        }
+
+        if ($attempt < $attempts && $delaySeconds > 0) {
+            sleep($delaySeconds);
+        }
+    }
+
+    return $latestSync;
+}
+
 function notify_bank_payment_verified_paid(
     mysqli $mysqli,
     array $order,
@@ -2889,6 +2929,42 @@ if ($action === 'submit_payment') {
                 $paidStmt->close();
 
                 $paidOrder = fetch_order_by_id($mysqli, $orderId) ?: $updatedOrder;
+
+                $autoSyncResult = try_auto_sync_provider_order($mysqli, $paidOrder, 3, 2);
+                if (is_array($autoSyncResult)) {
+                    $paidOrder = is_array($autoSyncResult['order'] ?? null) ? $autoSyncResult['order'] : $paidOrder;
+                    $providerMessage = trim((string) ($autoSyncResult['provider_message'] ?? $providerMessage));
+                    $providerReference = trim((string) ($autoSyncResult['provider_reference'] ?? $providerReference));
+                    $resolvedStatus = trim((string) ($autoSyncResult['local_status'] ?? ''));
+
+                    if ($resolvedStatus === 'enviado') {
+                        json_response([
+                            'ok' => true,
+                            'message' => 'Pago verificado y recarga procesada correctamente.',
+                            'order_id' => $orderId,
+                            'estado' => 'enviado',
+                            'verified' => true,
+                            'provider_flow' => 'completed',
+                            'provider_reference' => $providerReference,
+                            'provider_message' => $providerMessage,
+                        ]);
+                    }
+
+                    if ($resolvedStatus === 'cancelado') {
+                        json_response([
+                            'ok' => true,
+                            'message' => 'El pago fue verificado, pero el proveedor canceló la compra. Nuestro equipo revisará tu pedido.',
+                            'order_id' => $orderId,
+                            'estado' => 'cancelado',
+                            'verified' => true,
+                            'provider_flow' => 'cancelled',
+                            'reasons' => [$providerMessage],
+                            'provider_reference' => $providerReference,
+                            'provider_message' => $providerMessage,
+                        ]);
+                    }
+                }
+
                 json_response([
                     'ok' => true,
                     'message' => 'El pago fue verificado y la compra fue aceptada por la API. Quedó en proceso para seguimiento.',
