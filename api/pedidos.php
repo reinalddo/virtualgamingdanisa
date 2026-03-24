@@ -1307,12 +1307,27 @@ function execute_catalog_api_purchase(int $productId, ?string $userIdentifier, a
         $payload[$fieldName] = $fieldValue;
     }
 
-    $response = recargas_api_post_json_with_fallback(
-        'https://tiendagiftven.tech/api/v1/comprar',
-        $payload,
-        ['X-API-Key: ' . recargas_api_key()],
-        25
-    );
+    try {
+        $response = recargas_api_post_json_with_fallback(
+            'https://tiendagiftven.tech/api/v1/comprar',
+            $payload,
+            ['X-API-Key: ' . recargas_api_key()],
+            25
+        );
+    } catch (Throwable $e) {
+        return [
+            'success' => false,
+            'accepted' => false,
+            'message' => trim((string) $e->getMessage()) !== ''
+                ? trim((string) $e->getMessage())
+                : 'La API de recargas rechazó la compra.',
+            'reference' => '',
+            'payload' => [
+                'exception' => $e->getMessage(),
+                'request_payload' => $payload,
+            ],
+        ];
+    }
 
     $message = trim((string) ($response['mensaje'] ?? $response['error'] ?? ''));
 

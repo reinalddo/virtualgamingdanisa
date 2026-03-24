@@ -2,6 +2,62 @@
 
 require_once __DIR__ . '/store_config.php';
 
+function recargas_api_decode_response_body(?string $body): ?array {
+    $body = trim((string) $body);
+    if ($body === '') {
+        return null;
+    }
+
+    $data = json_decode($body, true);
+    return is_array($data) ? $data : null;
+}
+
+function recargas_api_error_message_from_response(?array $data, int $status): string {
+    if (is_array($data)) {
+        $candidates = [
+            $data['mensaje'] ?? null,
+            $data['message'] ?? null,
+            $data['error'] ?? null,
+            $data['detalle'] ?? null,
+            $data['detail'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            $text = trim((string) $candidate);
+            if ($text !== '') {
+                return $text;
+            }
+        }
+
+        if (isset($data['errors']) && is_array($data['errors'])) {
+            $flatErrors = [];
+            foreach ($data['errors'] as $key => $value) {
+                if (is_array($value)) {
+                    foreach ($value as $item) {
+                        $itemText = trim((string) $item);
+                        if ($itemText !== '') {
+                            $flatErrors[] = $itemText;
+                        }
+                    }
+                    continue;
+                }
+
+                $valueText = trim((string) $value);
+                if ($valueText !== '') {
+                    $label = is_string($key) ? trim($key) : '';
+                    $flatErrors[] = $label !== '' ? ($label . ': ' . $valueText) : $valueText;
+                }
+            }
+
+            if ($flatErrors) {
+                return implode(' | ', $flatErrors);
+            }
+        }
+    }
+
+    return 'La API de recargas respondió con código HTTP ' . $status . '.';
+}
+
 function recargas_api_base_url(): string {
     return 'https://tiendagiftven.tech/api/v1';
 }
@@ -37,10 +93,6 @@ function recargas_api_http_get_json(string $url, array $headers = [], int $timeo
             throw new RuntimeException('No se pudo consultar la API de recargas: ' . $error);
         }
 
-        if ($status >= 400) {
-            throw new RuntimeException('La API de recargas respondió con código HTTP ' . $status . '.');
-        }
-
         $body = $response;
     } else {
         $context = stream_context_create([
@@ -63,9 +115,13 @@ function recargas_api_http_get_json(string $url, array $headers = [], int $timeo
         $body = $response;
     }
 
-    $data = json_decode((string) $body, true);
+    $data = recargas_api_decode_response_body((string) $body);
     if (!is_array($data)) {
         throw new RuntimeException('La API de recargas no devolvió un JSON válido.');
+    }
+
+    if (isset($status) && $status >= 400) {
+        throw new RuntimeException(recargas_api_error_message_from_response($data, $status));
     }
 
     return $data;
@@ -102,10 +158,6 @@ function recargas_api_http_post_json(string $url, array $payload, array $headers
             throw new RuntimeException('No se pudo consultar la API de recargas: ' . $error);
         }
 
-        if ($status >= 400) {
-            throw new RuntimeException('La API de recargas respondió con código HTTP ' . $status . '.');
-        }
-
         $body = $response;
     } else {
         $context = stream_context_create([
@@ -129,9 +181,13 @@ function recargas_api_http_post_json(string $url, array $payload, array $headers
         $body = $response;
     }
 
-    $data = json_decode((string) $body, true);
+    $data = recargas_api_decode_response_body((string) $body);
     if (!is_array($data)) {
         throw new RuntimeException('La API de recargas no devolvió un JSON válido.');
+    }
+
+    if (isset($status) && $status >= 400) {
+        throw new RuntimeException(recargas_api_error_message_from_response($data, $status));
     }
 
     return $data;
