@@ -2314,7 +2314,8 @@ function try_auto_sync_provider_order(mysqli $mysqli, array $order, int $attempt
                 'provider_status' => trim((string) ($order['recargas_api_estado'] ?? '')),
                 'local_status' => trim((string) ($order['estado'] ?? 'pagado')),
                 'provider_reference' => trim((string) ($order['ff_api_referencia'] ?? '')),
-                'provider_message' => trim((string) $e->getMessage()),
+                'provider_message' => trim((string) ($order['ff_api_mensaje'] ?? '')),
+                'sync_error' => trim((string) $e->getMessage()),
                 'refund_amount' => isset($order['recargas_api_reembolso']) ? (float) $order['recargas_api_reembolso'] : null,
                 'provider_code' => trim((string) ($order['recargas_api_codigo_entregado'] ?? '')),
             ];
