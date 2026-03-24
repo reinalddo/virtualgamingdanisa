@@ -1086,7 +1086,12 @@ function build_catalog_player_fields(array $product, ?string $userIdentifier, ar
     $playerFields = [];
     $requiredFields = recargas_api_normalize_required_fields($product['campos_requeridos'] ?? []);
 
-    foreach ($requiredFields as $index => $fieldName) {
+    foreach ($requiredFields as $index => $fieldMeta) {
+        $fieldName = normalize_player_field_key((string) ($fieldMeta['name'] ?? ''));
+        if ($fieldName === '') {
+            continue;
+        }
+
         $value = trim((string) ($submittedFields[$fieldName] ?? ''));
         if ($value === '' && $index === 0) {
             $value = trim((string) $userIdentifier);
