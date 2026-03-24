@@ -1389,6 +1389,7 @@ function execute_catalog_api_purchase(int $productId, ?string $userIdentifier, a
     return [
         'success' => recargas_api_result_is_success($response),
         'accepted' => recargas_api_purchase_is_accepted($response),
+        'manual_processing' => !empty($product['procesamiento_manual']),
         'message' => $message !== '' ? $message : 'Respuesta recibida desde la API de recargas.',
         'reference' => sanitize_str((string) ($response['referencia'] ?? $response['pedido_id'] ?? ''), 120),
         'payload' => $response,
@@ -2906,6 +2907,7 @@ if ($action === 'submit_payment') {
 
             if (!empty($freeFireResult['accepted'])) {
                 $paidStatus = 'pagado';
+                $manualProcessing = !empty($freeFireResult['manual_processing']);
                 $providerHistoryJson = append_provider_history(
                     $updatedOrder['recargas_api_historial_json'] ?? null,
                     build_provider_history_entry(
@@ -2930,7 +2932,9 @@ if ($action === 'submit_payment') {
 
                 $paidOrder = fetch_order_by_id($mysqli, $orderId) ?: $updatedOrder;
 
-                $autoSyncResult = try_auto_sync_provider_order($mysqli, $paidOrder, 3, 2);
+                $autoSyncAttempts = $manualProcessing ? 5 : 3;
+                $autoSyncDelaySeconds = $manualProcessing ? 4 : 2;
+                $autoSyncResult = try_auto_sync_provider_order($mysqli, $paidOrder, $autoSyncAttempts, $autoSyncDelaySeconds);
                 if (is_array($autoSyncResult)) {
                     $paidOrder = is_array($autoSyncResult['order'] ?? null) ? $autoSyncResult['order'] : $paidOrder;
                     $providerMessage = trim((string) ($autoSyncResult['provider_message'] ?? $providerMessage));

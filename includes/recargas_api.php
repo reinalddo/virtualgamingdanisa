@@ -586,17 +586,50 @@ function recargas_api_fetch_order_detail(string $providerOrderId): array {
         throw new RuntimeException('El pedido externo no tiene un ID válido.');
     }
 
-    $response = recargas_api_get_json_with_fallback(
-        recargas_api_base_url() . '/pedido/' . rawurlencode($providerOrderId),
-        recargas_api_auth_headers(),
-        25
-    );
+    try {
+        $response = recargas_api_get_json_with_fallback(
+            recargas_api_base_url() . '/pedido/' . rawurlencode($providerOrderId),
+            recargas_api_auth_headers(),
+            25
+        );
 
-    if (empty($response['ok']) || !isset($response['pedido']) || !is_array($response['pedido'])) {
-        throw new RuntimeException((string) ($response['error'] ?? 'No se pudo consultar el pedido externo.'));
+        if (!empty($response['ok']) && isset($response['pedido']) && is_array($response['pedido'])) {
+            return $response['pedido'];
+        }
+
+        $apiError = trim((string) ($response['error'] ?? ''));
+        if ($apiError === '') {
+            throw new RuntimeException('No se pudo consultar el pedido externo.');
+        }
+
+        throw new RuntimeException($apiError);
+    } catch (Throwable $e) {
+        $needle = mb_strtolower($providerOrderId, 'UTF-8');
+
+        try {
+            foreach (recargas_api_fetch_recent_orders() as $order) {
+                if (!is_array($order)) {
+                    continue;
+                }
+
+                $candidates = [
+                    trim((string) ($order['id'] ?? '')),
+                    trim((string) ($order['pedido_id'] ?? '')),
+                    trim((string) ($order['referencia'] ?? '')),
+                ];
+
+                foreach ($candidates as $candidate) {
+                    if ($candidate !== '' && mb_strtolower($candidate, 'UTF-8') === $needle) {
+                        return $order;
+                    }
+                }
+            }
+        } catch (Throwable $recentOrdersError) {
+            throw $e;
+        }
+
+        throw $e;
     }
-
-    return $response['pedido'];
 }
 
 function recargas_api_fetch_recent_orders(): array {
