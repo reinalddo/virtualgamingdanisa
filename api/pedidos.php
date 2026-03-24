@@ -1199,6 +1199,18 @@ function build_catalog_player_fields(array $product, ?string $userIdentifier, ar
     return $playerFields;
 }
 
+function catalog_provider_payload_key(array $product, array $fieldMeta): string {
+    $providerName = normalize_player_field_key((string) ($fieldMeta['provider_name'] ?? ''));
+    $canonicalName = normalize_player_field_key((string) ($fieldMeta['name'] ?? ''));
+    $category = mb_strtolower(trim((string) ($product['categoria'] ?? '')), 'UTF-8');
+
+    if ($category === 'blood strike' && $providerName === 'input1' && $canonicalName === 'id_juego') {
+        return 'id_juego';
+    }
+
+    return $providerName !== '' ? $providerName : $canonicalName;
+}
+
 function primary_player_identifier_from_fields(array $playerFields): ?string {
     foreach ($playerFields as $value) {
         $normalized = trim((string) $value);
@@ -1332,7 +1344,21 @@ function execute_catalog_api_purchase(int $productId, ?string $userIdentifier, a
         'producto_id' => $productId,
     ];
 
-    foreach (build_catalog_player_fields($product, $userIdentifier, $playerFields) as $fieldName => $fieldValue) {
+    $normalizedFields = build_catalog_player_fields($product, $userIdentifier, $playerFields);
+    foreach (recargas_api_normalize_required_fields($product['campos_requeridos'] ?? []) as $fieldMeta) {
+        $canonicalName = normalize_player_field_key((string) ($fieldMeta['name'] ?? ''));
+        if ($canonicalName === '' || !isset($normalizedFields[$canonicalName])) {
+            continue;
+        }
+
+        $payload[catalog_provider_payload_key($product, $fieldMeta)] = $normalizedFields[$canonicalName];
+    }
+
+    foreach ($normalizedFields as $fieldName => $fieldValue) {
+        if ($fieldValue === '' || isset($payload[$fieldName])) {
+            continue;
+        }
+
         $payload[$fieldName] = $fieldValue;
     }
 

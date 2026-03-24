@@ -370,6 +370,8 @@ function recargas_api_extract_required_field_meta($field): ?array {
         $options = [];
     }
 
+    $providerName = strtolower(trim($rawName));
+    $providerName = preg_replace('/[^a-z0-9_]+/u', '', $providerName) ?? '';
     $name = recargas_api_canonical_field_name($rawName, $rawDescription);
     if ($name === '') {
         return null;
@@ -381,6 +383,7 @@ function recargas_api_extract_required_field_meta($field): ?array {
 
     return [
         'name' => $name,
+        'provider_name' => $providerName !== '' ? $providerName : $name,
         'description' => $rawDescription,
         'type' => $rawType !== '' ? $rawType : 'string',
         'options' => $options,

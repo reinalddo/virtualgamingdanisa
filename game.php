@@ -259,23 +259,25 @@ include __DIR__ . "/includes/header.php";
     </div>
   </div>
   <form class="row g-3" id="order-form">
-    <div class="col-md-4" id="player-primary-field">
-      <label class="form-label text-info" id="player-primary-label">ID de usuario</label>
-      <input type="text" id="order-user-id" name="user_id" placeholder="Ej: 12345678" class="form-control bg-dark text-info border-info" required />
+    <div class="col-12">
+      <div class="row g-3" id="player-fields-row">
+        <div class="col-md-6 col-12" id="player-primary-field">
+          <label class="form-label text-info" id="player-primary-label">ID de usuario</label>
+          <input type="text" id="order-user-id" name="user_id" placeholder="Ej: 12345678" class="form-control bg-dark text-info border-info" required />
+        </div>
+        <div id="extra-player-fields" class="col-md-6 col-12"></div>
+      </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-6">
       <label class="form-label text-info">Correo</label>
       <input type="email" name="email" placeholder="tu@email.com" value="<?= htmlspecialchars($loggedUserEmail, ENT_QUOTES, 'UTF-8') ?>" autocomplete="email" class="form-control bg-dark text-info border-info" required />
     </div>
-    <div class="col-md-4">
+    <div class="col-md-6">
       <label class="form-label text-info">Cupón</label>
       <div class="input-group">
         <input type="text" name="coupon" id="coupon-input" placeholder="Código opcional" pattern="[A-Za-z0-9]+" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" title="Solo letras y números, sin espacios ni caracteres especiales." class="form-control bg-dark text-info border-info" />
         <button type="button" id="apply-coupon-btn" class="btn btn-info fw-bold">Aplicar cupón</button>
       </div>
-    </div>
-    <div class="col-12">
-      <div class="row g-3" id="extra-player-fields"></div>
     </div>
     <div class="col-12">
       <button type="submit" id="buy-button" class="btn btn-success w-100 fw-bold text-uppercase" disabled>
@@ -922,7 +924,7 @@ include __DIR__ . "/includes/header.php";
     extraPlayerFields.innerHTML = '';
     requiredFields.slice(1).forEach((fieldConfig) => {
       const wrapper = document.createElement('div');
-      wrapper.className = 'col-md-4';
+      wrapper.className = 'col-12';
 
       const label = document.createElement('label');
       label.className = 'form-label text-info';
