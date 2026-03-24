@@ -304,6 +304,59 @@ function recargas_api_fetch_product_by_id(int $productId): ?array {
     return null;
 }
 
+function recargas_api_canonical_field_name(string $rawName, string $rawDescription = ''): string {
+    $name = strtolower(trim($rawName));
+    $name = preg_replace('/[^a-z0-9_]+/u', '', $name) ?? '';
+    if ($name === '') {
+        return '';
+    }
+
+    if (!in_array($name, ['input1', 'input2', 'input3', 'input4'], true)) {
+        return $name;
+    }
+
+    $description = mb_strtolower(trim($rawDescription), 'UTF-8');
+    $description = preg_replace('/\s+/u', ' ', $description) ?? $description;
+
+    if (
+        str_contains($description, 'user id')
+        || str_contains($description, 'player id')
+        || str_contains($description, 'id del jugador')
+        || str_contains($description, 'id de jugador')
+        || str_contains($description, 'id de usuario')
+    ) {
+        return 'id_juego';
+    }
+
+    if (
+        str_contains($description, 'zone id')
+        || str_contains($description, 'id de zona')
+        || $description === 'zona'
+        || $description === 'zone'
+    ) {
+        return 'zone_id';
+    }
+
+    if (
+        str_contains($description, 'server id')
+        || str_contains($description, 'id de servidor')
+        || $description === 'servidor'
+        || $description === 'server'
+    ) {
+        return 'server_id';
+    }
+
+    if (str_contains($description, 'correo') || str_contains($description, 'email')) {
+        return 'email';
+    }
+
+    if (str_contains($description, 'telefono') || str_contains($description, 'phone')) {
+        return 'telefono';
+    }
+
+    return $name;
+}
+
 function recargas_api_extract_required_field_meta($field): ?array {
     if (is_array($field)) {
         $rawName = trim((string) ($field['nombre'] ?? $field['name'] ?? ''));
@@ -317,8 +370,7 @@ function recargas_api_extract_required_field_meta($field): ?array {
         $options = [];
     }
 
-    $name = strtolower($rawName);
-    $name = preg_replace('/[^a-z0-9_]+/u', '', $name) ?? '';
+    $name = recargas_api_canonical_field_name($rawName, $rawDescription);
     if ($name === '') {
         return null;
     }
