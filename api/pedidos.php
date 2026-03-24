@@ -246,6 +246,8 @@ function load_mail_settings(mysqli $mysqli): array {
 }
 
 function resolve_admin_email(mysqli $mysqli): ?string {
+    $mysqli = ensure_mysqli_connection($mysqli);
+
     $envEmail = trim((string) getenv('TVG_ADMIN_EMAIL'));
     if ($envEmail !== '' && filter_var($envEmail, FILTER_VALIDATE_EMAIL)) {
         return $envEmail;
@@ -909,6 +911,8 @@ function order_expiration_iso(array $order): string {
 }
 
 function fetch_order_by_id(mysqli $mysqli, int $orderId): ?array {
+    $mysqli = ensure_mysqli_connection($mysqli);
+
     $stmt = $mysqli->prepare('SELECT pedidos.*, UNIX_TIMESTAMP(creado_en) AS creado_en_ts FROM pedidos WHERE id = ? LIMIT 1');
     if (!$stmt) {
         return null;
@@ -919,6 +923,41 @@ function fetch_order_by_id(mysqli $mysqli, int $orderId): ?array {
     $order = $res ? $res->fetch_assoc() : null;
     $stmt->close();
     return $order ?: null;
+}
+
+function find_local_order_by_provider_identifiers(mysqli $mysqli, ?string $providerOrderId, ?string $providerReference): ?array {
+    $providerOrderId = trim((string) $providerOrderId);
+    $providerReference = trim((string) $providerReference);
+
+    if ($providerOrderId !== '') {
+        $stmt = $mysqli->prepare('SELECT pedidos.*, UNIX_TIMESTAMP(creado_en) AS creado_en_ts FROM pedidos WHERE recargas_api_pedido_id = ? LIMIT 1');
+        if ($stmt) {
+            $stmt->bind_param('s', $providerOrderId);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $order = $res ? $res->fetch_assoc() : null;
+            $stmt->close();
+            if ($order) {
+                return $order;
+            }
+        }
+    }
+
+    if ($providerReference !== '') {
+        $stmt = $mysqli->prepare('SELECT pedidos.*, UNIX_TIMESTAMP(creado_en) AS creado_en_ts FROM pedidos WHERE ff_api_referencia = ? ORDER BY id DESC LIMIT 1');
+        if ($stmt) {
+            $stmt->bind_param('s', $providerReference);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $order = $res ? $res->fetch_assoc() : null;
+            $stmt->close();
+            if ($order) {
+                return $order;
+            }
+        }
+    }
+
+    return null;
 }
 
 function provider_history_from_json(?string $json): array {
@@ -975,6 +1014,8 @@ function append_provider_history(?string $existingJson, array $entry, int $limit
 }
 
 function fetch_active_payment_method(mysqli $mysqli, int $methodId): ?array {
+    $mysqli = ensure_mysqli_connection($mysqli);
+
     $stmt = $mysqli->prepare("SELECT pm.*, m.nombre AS moneda_nombre, m.clave AS moneda_clave
         FROM payment_methods pm
         INNER JOIN monedas m ON m.id = pm.moneda_id
@@ -1538,6 +1579,8 @@ function sync_bank_movements(mysqli $mysqli, array $movements): void {
         return;
     }
 
+    $mysqli = ensure_mysqli_connection($mysqli);
+
     $stmt = $mysqli->prepare(
         'INSERT INTO movimientos (referencia, descripcion, fecha_raw, fecha_movimiento, tipo, monto, moneda, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?) '
         . 'ON DUPLICATE KEY UPDATE descripcion = VALUES(descripcion), fecha_raw = VALUES(fecha_raw), fecha_movimiento = COALESCE(VALUES(fecha_movimiento), fecha_movimiento), tipo = VALUES(tipo), monto = VALUES(monto), moneda = VALUES(moneda), payload_json = VALUES(payload_json)'
@@ -1591,6 +1634,8 @@ function movement_reference_matches(string $fullReference, string $reportedRefer
 }
 
 function movement_is_available_for_order(mysqli $mysqli, string $reference, int $orderId): bool {
+    $mysqli = ensure_mysqli_connection($mysqli);
+
     $stmt = $mysqli->prepare('SELECT pedido_id FROM movimientos WHERE referencia = ? LIMIT 1');
     if (!$stmt) {
         return false;
@@ -1732,6 +1777,8 @@ function explain_bank_movement_mismatch(array $movements, string $reportedRefere
 }
 
 function link_movement_to_order(mysqli $mysqli, string $reference, int $orderId): void {
+    $mysqli = ensure_mysqli_connection($mysqli);
+
     $stmt = $mysqli->prepare('UPDATE movimientos SET pedido_id = ? WHERE referencia = ? AND (pedido_id IS NULL OR pedido_id = 0 OR pedido_id = ?)');
     if (!$stmt) {
         throw new RuntimeException('No se pudo asociar el movimiento al pedido.');
@@ -2215,6 +2262,8 @@ function notify_catalog_purchase_cancelled(
 }
 
 function sync_local_order_with_provider_detail(mysqli $mysqli, array $order, array $providerDetail, bool $notify = true): array {
+    $mysqli = ensure_mysqli_connection($mysqli);
+
     $orderId = (int) ($order['id'] ?? 0);
     if ($orderId <= 0) {
         throw new RuntimeException('Pedido local inválido para sincronizar.');
@@ -2312,6 +2361,7 @@ function try_auto_sync_provider_order(mysqli $mysqli, array $order, int $attempt
 
     for ($attempt = 1; $attempt <= $attempts; $attempt++) {
         try {
+            $mysqli = ensure_mysqli_connection($mysqli);
             $providerDetail = recargas_api_fetch_order_detail($providerOrderId);
             $latestSync = sync_local_order_with_provider_detail($mysqli, $order, $providerDetail, true);
 
@@ -2695,6 +2745,8 @@ if ($action === 'create') {
 }
 
 if ($action === 'submit_payment') {
+    $mysqli = ensure_mysqli_connection($mysqli);
+
     $orderId = intval($_POST['order_id'] ?? 0);
     $paymentMethodId = intval($_POST['payment_method_id'] ?? 0);
     $referenceNumberRaw = trim((string) ($_POST['reference_number'] ?? ''));
@@ -2827,6 +2879,7 @@ if ($action === 'submit_payment') {
         }
 
         if ($matchingMovement !== null) {
+            $mysqli = ensure_mysqli_connection($mysqli);
             $verifiedReference = (string) ($matchingMovement['referencia'] ?? $referenceNumber);
             link_movement_to_order($mysqli, $verifiedReference, $orderId);
 
@@ -2871,6 +2924,8 @@ if ($action === 'submit_payment') {
                     'payload' => ['exception' => $e->getMessage()],
                 ];
             }
+
+            $mysqli = ensure_mysqli_connection($mysqli);
 
             $providerReference = (string) ($freeFireResult['reference'] ?? '');
             $providerMessage = (string) ($freeFireResult['message'] ?? 'No se recibió mensaje del proveedor.');
@@ -3289,26 +3344,18 @@ if ($action === 'provider_webhook') {
     $providerCode = trim((string) ($_POST['codigo_entregado'] ?? ''));
     $refundAmount = isset($_POST['reembolso']) && is_numeric($_POST['reembolso']) ? (float) $_POST['reembolso'] : null;
 
-    if ($providerOrderId === null || $providerOrderId === '') {
-        json_error('Webhook sin pedido_id.', 422);
+    if (($providerOrderId === null || $providerOrderId === '') && $providerReference === '') {
+        json_error('Webhook sin identificador del pedido externo.', 422);
     }
 
-    $stmt = $mysqli->prepare('SELECT pedidos.*, UNIX_TIMESTAMP(creado_en) AS creado_en_ts FROM pedidos WHERE recargas_api_pedido_id = ? LIMIT 1');
-    if (!$stmt) {
-        json_error('No se pudo preparar la búsqueda del pedido local.', 500);
-    }
-    $stmt->bind_param('s', $providerOrderId);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    $order = $res ? $res->fetch_assoc() : null;
-    $stmt->close();
+    $order = find_local_order_by_provider_identifiers($mysqli, $providerOrderId, $providerReference);
 
     if (!$order) {
         json_error('No se encontró un pedido local asociado a ese pedido externo.', 404);
     }
 
     $providerDetail = [
-        'id' => $providerOrderId,
+        'id' => $providerOrderId !== '' ? $providerOrderId : (string) ($order['recargas_api_pedido_id'] ?? ''),
         'estado' => $providerStatus,
         'referencia' => $providerReference,
         'razon' => $providerReason,
