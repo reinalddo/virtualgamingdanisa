@@ -1264,7 +1264,7 @@ function primary_player_identifier_from_fields(array $playerFields): ?string {
 }
 
 function recargas_api_extract_provider_order_id(array $response): string {
-    return sanitize_str((string) ($response['pedido_id'] ?? $response['referencia'] ?? ''), 120) ?? '';
+    return sanitize_str((string) ($response['id'] ?? $response['pedido_id'] ?? $response['referencia'] ?? ''), 120) ?? '';
 }
 
 function provider_status_to_local_status(string $providerStatus): ?string {
@@ -1379,6 +1379,329 @@ function provider_message_indicates_pending_lookup(string $message): bool {
         || str_contains($normalized, 'reference no');
 }
 
+function provider_message_indicates_transport_timeout(string $message): bool {
+    $normalized = mb_strtolower(trim(strip_tags($message)), 'UTF-8');
+    if ($normalized === '') {
+        return false;
+    }
+
+    return str_contains($normalized, 'operation timed out')
+        || str_contains($normalized, 'timed out')
+        || str_contains($normalized, 'timeout')
+        || str_contains($normalized, '0 bytes received')
+        || str_contains($normalized, 'empty reply from server')
+        || str_contains($normalized, 'connection reset by peer')
+        || str_contains($normalized, 'failed to connect');
+}
+
+function build_provider_sync_snapshot(array $order, ?string $syncError = null): array {
+    return [
+        'order' => $order,
+        'provider_status' => trim((string) ($order['recargas_api_estado'] ?? '')),
+        'local_status' => trim((string) ($order['estado'] ?? 'pagado')),
+        'provider_reference' => trim((string) ($order['ff_api_referencia'] ?? '')),
+        'provider_message' => trim((string) ($order['ff_api_mensaje'] ?? '')),
+        'refund_amount' => isset($order['recargas_api_reembolso']) ? (float) $order['recargas_api_reembolso'] : null,
+        'provider_code' => trim((string) ($order['recargas_api_codigo_entregado'] ?? '')),
+        'sync_error' => $syncError !== null ? trim($syncError) : '',
+    ];
+}
+
+function order_provider_request_payload(array $order): array {
+    $payload = json_decode((string) ($order['ff_api_payload'] ?? ''), true);
+    if (!is_array($payload)) {
+        return [];
+    }
+
+    $requestPayload = $payload['request_payload'] ?? null;
+    return is_array($requestPayload) ? $requestPayload : [];
+}
+
+function provider_normalize_match_value($value): string {
+    if ($value === null) {
+        return '';
+    }
+
+    if (is_bool($value)) {
+        return $value ? '1' : '0';
+    }
+
+    $normalized = trim((string) $value);
+    if ($normalized === '') {
+        return '';
+    }
+
+    $normalized = mb_strtolower($normalized, 'UTF-8');
+    $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
+    return trim($normalized);
+}
+
+function provider_collect_match_values($value, int $depth = 0): array {
+    if ($depth > 4) {
+        return [];
+    }
+
+    $values = [];
+
+    if (is_array($value)) {
+        foreach ($value as $item) {
+            foreach (provider_collect_match_values($item, $depth + 1) as $candidate => $enabled) {
+                if ($enabled) {
+                    $values[$candidate] = true;
+                }
+            }
+        }
+        return $values;
+    }
+
+    if (is_object($value)) {
+        return provider_collect_match_values((array) $value, $depth + 1);
+    }
+
+    $normalized = provider_normalize_match_value($value);
+    if ($normalized !== '') {
+        $values[$normalized] = true;
+    }
+
+    return $values;
+}
+
+function provider_expected_match_values(array $requestPayload): array {
+    $expected = [];
+
+    foreach ($requestPayload as $key => $value) {
+        if (in_array((string) $key, ['producto_id', 'request_payload', 'exception'], true)) {
+            continue;
+        }
+
+        foreach (provider_collect_match_values($value) as $candidate => $enabled) {
+            if ($enabled) {
+                $expected[$candidate] = true;
+            }
+        }
+    }
+
+    return $expected;
+}
+
+function provider_candidate_product_id(array $providerCandidate): int {
+    foreach (['producto_id', 'product_id', 'id_producto'] as $key) {
+        if (isset($providerCandidate[$key]) && is_numeric($providerCandidate[$key])) {
+            return (int) $providerCandidate[$key];
+        }
+    }
+
+    return 0;
+}
+
+function provider_candidate_timestamp(array $providerCandidate): ?int {
+    foreach (['fecha', 'fecha_creacion', 'creado_en', 'created_at', 'updated_at', 'fecha_actualizacion'] as $key) {
+        $raw = trim((string) ($providerCandidate[$key] ?? ''));
+        if ($raw === '') {
+            continue;
+        }
+
+        $timestamp = strtotime($raw);
+        if ($timestamp !== false) {
+            return $timestamp;
+        }
+    }
+
+    return null;
+}
+
+function provider_candidate_score_for_order(array $order, array $providerCandidate): int {
+    $requestPayload = order_provider_request_payload($order);
+    if (!$requestPayload) {
+        return 0;
+    }
+
+    $expectedValues = provider_expected_match_values($requestPayload);
+    if (!$expectedValues) {
+        return 0;
+    }
+
+    $providerValues = provider_collect_match_values($providerCandidate);
+    if (!$providerValues) {
+        return 0;
+    }
+
+    $expectedProductId = isset($requestPayload['producto_id']) && is_numeric($requestPayload['producto_id'])
+        ? (int) $requestPayload['producto_id']
+        : (int) ($order['paquete_api'] ?? 0);
+    $providerProductId = provider_candidate_product_id($providerCandidate);
+    if ($expectedProductId > 0 && $providerProductId > 0 && $expectedProductId !== $providerProductId) {
+        return 0;
+    }
+
+    $matchedValues = 0;
+    foreach (array_keys($expectedValues) as $expectedValue) {
+        if (isset($providerValues[$expectedValue])) {
+            $matchedValues++;
+        }
+    }
+
+    if ($matchedValues === 0) {
+        return 0;
+    }
+
+    $score = $matchedValues * 10;
+    if ($expectedProductId > 0 && $providerProductId === $expectedProductId) {
+        $score += 20;
+    }
+
+    $orderCreatedTs = isset($order['creado_en_ts']) ? (int) $order['creado_en_ts'] : 0;
+    $providerTimestamp = provider_candidate_timestamp($providerCandidate);
+    if ($orderCreatedTs > 0 && $providerTimestamp !== null) {
+        $timeDiff = abs($providerTimestamp - $orderCreatedTs);
+        if ($timeDiff <= 1800) {
+            $score += 5;
+        } elseif ($timeDiff > 86400) {
+            $score -= 20;
+        }
+    }
+
+    if (recargas_api_extract_provider_order_id($providerCandidate) !== '') {
+        $score += 3;
+    }
+
+    return $score;
+}
+
+function find_provider_candidate_for_local_order(array $order): ?array {
+    $bestCandidate = null;
+    $bestScore = 0;
+    $requestPayload = order_provider_request_payload($order);
+    if (!$requestPayload) {
+        return null;
+    }
+
+    $expectedValueCount = count(provider_expected_match_values($requestPayload));
+    $minimumScore = $expectedValueCount <= 1 ? 10 : 20;
+    $sources = [
+        'orders' => 'recargas_api_fetch_recent_orders',
+        'transactions' => 'recargas_api_fetch_transactions',
+    ];
+    $lastError = null;
+
+    foreach ($sources as $sourceCallback) {
+        try {
+            $items = $sourceCallback();
+        } catch (Throwable $e) {
+            $lastError = $e;
+            continue;
+        }
+
+        foreach ($items as $providerCandidate) {
+            if (!is_array($providerCandidate)) {
+                continue;
+            }
+
+            $score = provider_candidate_score_for_order($order, $providerCandidate);
+            if ($score < $minimumScore || $score <= $bestScore) {
+                continue;
+            }
+
+            $bestCandidate = $providerCandidate;
+            $bestScore = $score;
+        }
+    }
+
+    if (is_array($bestCandidate)) {
+        return $bestCandidate;
+    }
+
+    if ($lastError !== null) {
+        throw $lastError;
+    }
+
+    return null;
+}
+
+function try_recover_uncertain_provider_purchase(mysqli $mysqli, array $order, int $attempts = 6, int $delaySeconds = 8): ?array {
+    $orderId = (int) ($order['id'] ?? 0);
+    if ($orderId <= 0) {
+        return null;
+    }
+
+    $attempts = max(1, $attempts);
+    $delaySeconds = max(0, $delaySeconds);
+    $latestResult = build_provider_sync_snapshot($order);
+
+    for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+        $mysqli = ensure_mysqli_connection($mysqli);
+        $order = fetch_order_by_id($mysqli, $orderId) ?: $order;
+
+        if (in_array((string) ($order['estado'] ?? ''), ['enviado', 'cancelado'], true)) {
+            return build_provider_sync_snapshot($order);
+        }
+
+        $providerOrderId = trim((string) ($order['recargas_api_pedido_id'] ?? ''));
+        if ($providerOrderId !== '') {
+            return try_auto_sync_provider_order($mysqli, $order, max(1, $attempts - $attempt + 1), $delaySeconds);
+        }
+
+        try {
+            $providerCandidate = find_provider_candidate_for_local_order($order);
+            if (is_array($providerCandidate)) {
+                $candidateIdentifier = recargas_api_extract_provider_order_id($providerCandidate);
+                $providerDetail = $providerCandidate;
+
+                if ($candidateIdentifier !== '') {
+                    try {
+                        $providerDetail = recargas_api_fetch_order_detail($candidateIdentifier);
+                    } catch (Throwable $detailError) {
+                    }
+                }
+
+                $latestResult = sync_local_order_with_provider_detail($mysqli, $order, $providerDetail, true);
+                $order = is_array($latestResult['order'] ?? null)
+                    ? $latestResult['order']
+                    : (fetch_order_by_id($mysqli, $orderId) ?: $order);
+
+                if (in_array((string) ($latestResult['local_status'] ?? ''), ['enviado', 'cancelado'], true)) {
+                    return $latestResult;
+                }
+
+                $providerOrderId = trim((string) ($order['recargas_api_pedido_id'] ?? ''));
+                if ($providerOrderId !== '') {
+                    return try_auto_sync_provider_order($mysqli, $order, max(1, $attempts - $attempt + 1), $delaySeconds);
+                }
+            }
+        } catch (Throwable $e) {
+            $latestResult = build_provider_sync_snapshot($order, $e->getMessage());
+        }
+
+        if ($attempt < $attempts && $delaySeconds > 0) {
+            sleep($delaySeconds);
+        }
+    }
+
+    return $latestResult;
+}
+
+function continue_provider_follow_up_in_background(mysqli $mysqli, int $orderId, int $attempts = 8, int $delaySeconds = 8): void {
+    if ($orderId <= 0) {
+        return;
+    }
+
+    try {
+        $mysqli = ensure_mysqli_connection($mysqli);
+        $order = fetch_order_by_id($mysqli, $orderId);
+        if (!$order) {
+            return;
+        }
+
+        if (in_array((string) ($order['estado'] ?? ''), ['enviado', 'cancelado'], true)) {
+            return;
+        }
+
+        try_recover_uncertain_provider_purchase($mysqli, $order, $attempts, $delaySeconds);
+    } catch (Throwable $e) {
+        error_log('TVG provider follow-up error for order #' . $orderId . ': ' . $e->getMessage());
+    }
+}
+
 function execute_catalog_api_purchase(int $productId, ?string $userIdentifier, array $playerFields = []): array {
     if ($productId <= 0) {
         throw new RuntimeException('El paquete seleccionado no tiene un producto API configurado.');
@@ -1420,7 +1743,7 @@ function execute_catalog_api_purchase(int $productId, ?string $userIdentifier, a
             'https://tiendagiftven.tech/api/v1/comprar',
             $payload,
             ['X-API-Key: ' . recargas_api_key()],
-            25
+            recargas_api_purchase_timeout_seconds()
         );
     } catch (Throwable $e) {
         return [
@@ -2976,6 +3299,50 @@ if ($action === 'submit_payment') {
             $manualProcessing = !empty($freeFireResult['manual_processing']);
             $acceptedLike = !empty($freeFireResult['accepted'])
                 || ($manualProcessing && provider_message_indicates_pending_lookup($providerMessage));
+            $trackingFollowUp = provider_message_indicates_transport_timeout($providerMessage);
+
+            if ($trackingFollowUp) {
+                $paidStatus = 'pagado';
+                $providerTrackedState = $providerState !== '' ? $providerState : 'pending_confirmation';
+                $providerHistoryJson = append_provider_history(
+                    $updatedOrder['recargas_api_historial_json'] ?? null,
+                    build_provider_history_entry(
+                        'purchase_timeout',
+                        $providerTrackedState,
+                        $paidStatus,
+                        $providerMessage,
+                        $providerReference,
+                        $providerOrderId
+                    )
+                );
+                $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
+                if (!$paidStmt) {
+                    json_error('No se pudo actualizar el pedido tras validar el pago.', 500);
+                }
+                $paidStmt->bind_param('sssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerTrackedState, $providerHistoryJson, $paidStatus, $orderId);
+                if (!$paidStmt->execute()) {
+                    $paidStmt->close();
+                    json_error('No se pudo marcar el pedido como pagado.', 500);
+                }
+                $paidStmt->close();
+
+                $paidOrder = fetch_order_by_id($mysqli, $orderId) ?: $updatedOrder;
+                json_response([
+                    'ok' => true,
+                    'message' => 'El pago fue verificado. La compra quedo en seguimiento automatico mientras confirmamos la respuesta del proveedor.',
+                    'order_id' => $orderId,
+                    'estado' => 'pagado',
+                    'verified' => true,
+                    'provider_flow' => 'tracking',
+                    'reasons' => [$providerMessage],
+                    'provider_reference' => $providerReference,
+                    'provider_message' => $providerMessage,
+                ], 200, static function () use ($mysqli, $paidOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage, $orderId): void {
+                    register_influencer_coupon_sale($mysqli, $paidOrder);
+                    notify_catalog_purchase_pending($mysqli, $paidOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage);
+                    continue_provider_follow_up_in_background($mysqli, (int) ($paidOrder['id'] ?? $orderId), 8, 8);
+                });
+            }
 
             if ($acceptedLike) {
                 $paidStatus = 'pagado';
@@ -3053,6 +3420,7 @@ if ($action === 'submit_payment') {
                 ], 200, static function () use ($mysqli, $paidOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage): void {
                     register_influencer_coupon_sale($mysqli, $paidOrder);
                     notify_catalog_purchase_pending($mysqli, $paidOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage);
+                    continue_provider_follow_up_in_background($mysqli, (int) ($paidOrder['id'] ?? 0), 8, 8);
                 });
             }
 
@@ -3249,16 +3617,29 @@ if ($action === 'sync_provider_status') {
         json_error('Pedido no encontrado.', 404);
     }
 
-    $providerOrderId = trim((string) ($order['recargas_api_pedido_id'] ?? ''));
-    if ($providerOrderId === '') {
-        json_error('Este pedido aún no tiene un ID externo del proveedor.');
-    }
-
     try {
-        $providerDetail = recargas_api_fetch_order_detail($providerOrderId);
-        $syncResult = sync_local_order_with_provider_detail($mysqli, $order, $providerDetail, true);
+        $providerOrderId = trim((string) ($order['recargas_api_pedido_id'] ?? ''));
+        if ($providerOrderId === '') {
+            $syncResult = try_recover_uncertain_provider_purchase($mysqli, $order, 2, 2);
+            if (!is_array($syncResult)) {
+                json_error('Este pedido aun no pudo vincularse con una orden externa del proveedor.', 404);
+            }
+        } else {
+            $providerDetail = recargas_api_fetch_order_detail($providerOrderId);
+            $syncResult = sync_local_order_with_provider_detail($mysqli, $order, $providerDetail, true);
+        }
     } catch (Throwable $e) {
         json_error($e->getMessage(), 502);
+    }
+
+    $syncedOrder = is_array($syncResult['order'] ?? null)
+        ? $syncResult['order']
+        : (fetch_order_by_id($mysqli, $orderId) ?: $order);
+    $resolvedProviderOrderId = trim((string) ($syncedOrder['recargas_api_pedido_id'] ?? ''));
+    $resolvedProviderStatus = trim((string) ($syncResult['provider_status'] ?? ''));
+    $resolvedProviderReference = trim((string) ($syncResult['provider_reference'] ?? ''));
+    if ($resolvedProviderOrderId === '' && $resolvedProviderStatus === '' && $resolvedProviderReference === '') {
+        json_error('Aun no se encontro un pedido externo asociado a esta orden para sincronizar.', 404);
     }
 
     json_response([

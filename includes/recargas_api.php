@@ -70,15 +70,32 @@ function recargas_api_is_configured(): bool {
     return recargas_api_key() !== '';
 }
 
+function recargas_api_connect_timeout_seconds(): int {
+    return 10;
+}
+
+function recargas_api_products_timeout_seconds(): int {
+    return 30;
+}
+
+function recargas_api_purchase_timeout_seconds(): int {
+    return 60;
+}
+
+function recargas_api_lookup_timeout_seconds(): int {
+    return 35;
+}
+
 function recargas_api_http_get_json(string $url, array $headers = [], int $timeout = 20, bool $verifySsl = true): array {
     $body = null;
+    $connectTimeout = min(recargas_api_connect_timeout_seconds(), max(1, $timeout));
 
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_CONNECTTIMEOUT => $timeout,
+            CURLOPT_CONNECTTIMEOUT => $connectTimeout,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_SSL_VERIFYPEER => $verifySsl,
@@ -129,6 +146,7 @@ function recargas_api_http_get_json(string $url, array $headers = [], int $timeo
 
 function recargas_api_http_post_json(string $url, array $payload, array $headers = [], int $timeout = 25, bool $verifySsl = true): array {
     $body = null;
+    $connectTimeout = min(recargas_api_connect_timeout_seconds(), max(1, $timeout));
     $requestBody = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if (!is_string($requestBody)) {
         throw new RuntimeException('No se pudo serializar la solicitud JSON para la API de recargas.');
@@ -141,7 +159,7 @@ function recargas_api_http_post_json(string $url, array $payload, array $headers
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_CONNECTTIMEOUT => $timeout,
+            CURLOPT_CONNECTTIMEOUT => $connectTimeout,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $requestBody,
@@ -209,7 +227,7 @@ function recargas_api_fetch_products(): array {
         $data = recargas_api_http_get_json(
             'https://tiendagiftven.tech/api/v1/productos',
             ['X-API-Key: ' . $apiKey],
-            20,
+            recargas_api_products_timeout_seconds(),
             true
         );
     } catch (Throwable $e) {
@@ -224,7 +242,7 @@ function recargas_api_fetch_products(): array {
         $data = recargas_api_http_get_json(
             'https://tiendagiftven.tech/api/v1/productos',
             ['X-API-Key: ' . $apiKey],
-            20,
+            recargas_api_products_timeout_seconds(),
             false
         );
     }
@@ -610,7 +628,7 @@ function recargas_api_fetch_order_detail(string $providerOrderId): array {
         $response = recargas_api_get_json_with_fallback(
             recargas_api_base_url() . '/pedido/' . rawurlencode($providerOrderId),
             recargas_api_auth_headers(),
-            25
+            recargas_api_lookup_timeout_seconds()
         );
 
         if (!empty($response['ok']) && isset($response['pedido']) && is_array($response['pedido'])) {
@@ -656,7 +674,7 @@ function recargas_api_fetch_recent_orders(): array {
     $response = recargas_api_get_json_with_fallback(
         recargas_api_base_url() . '/pedidos',
         recargas_api_auth_headers(),
-        25
+        recargas_api_lookup_timeout_seconds()
     );
 
     if (empty($response['ok']) || !isset($response['pedidos']) || !is_array($response['pedidos'])) {
@@ -670,7 +688,7 @@ function recargas_api_fetch_transactions(): array {
     $response = recargas_api_get_json_with_fallback(
         recargas_api_base_url() . '/transacciones',
         recargas_api_auth_headers(),
-        25
+        recargas_api_lookup_timeout_seconds()
     );
 
     if (empty($response['ok']) || !isset($response['transacciones']) || !is_array($response['transacciones'])) {
@@ -684,7 +702,7 @@ function recargas_api_get_webhook(): array {
     $response = recargas_api_get_json_with_fallback(
         recargas_api_base_url() . '/webhook',
         recargas_api_auth_headers(),
-        25
+        recargas_api_lookup_timeout_seconds()
     );
 
     if (!isset($response['ok'])) {
@@ -702,7 +720,7 @@ function recargas_api_register_webhook(?string $url): array {
         recargas_api_base_url() . '/webhook',
         $payload,
         recargas_api_auth_headers(),
-        25
+        recargas_api_lookup_timeout_seconds()
     );
 
     if (!isset($response['ok'])) {

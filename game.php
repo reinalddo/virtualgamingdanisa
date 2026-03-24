@@ -1273,6 +1273,15 @@ include __DIR__ . "/includes/header.php";
       ];
     }
 
+    if (providerFlow === 'tracking') {
+      title = 'La compra quedó en seguimiento automático';
+      summary = 'El pago ya fue verificado. La API del proveedor no respondió a tiempo, pero el sistema seguirá consultando hasta confirmar el resultado.';
+      steps = [
+        'Tu pago quedó verificado correctamente y la orden sigue activa.',
+        'Primero intentaremos resolverla por webhook; si no llega confirmación, el sistema hará sincronización automática posterior.'
+      ];
+    }
+
     renderSupportCard(paymentModalReasons, title, summary, steps, reasons);
     renderSupportCard(paymentStatusModalReasons, title, summary, steps, reasons);
     renderSupportActionLinks(reference, totalText);
