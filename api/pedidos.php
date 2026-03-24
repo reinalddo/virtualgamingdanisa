@@ -415,27 +415,30 @@ function json_response(array $payload, int $code = 200, ?callable $afterSend = n
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{"ok":false,"message":"No se pudo generar una respuesta JSON válida."}';
     }
 
-    if (ob_get_length()) {
-        ob_clean();
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
     }
 
     header('Content-Type: application/json');
     header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
     header('Pragma: no-cache');
+    header('Content-Length: ' . strlen($json));
 
     if (session_status() === PHP_SESSION_ACTIVE) {
         @session_write_close();
     }
 
-    ignore_user_abort(true);
     echo $json;
+
+    if ($afterSend === null) {
+        exit;
+    }
+
+    ignore_user_abort(true);
 
     if (function_exists('fastcgi_finish_request')) {
         fastcgi_finish_request();
     } else {
-        while (ob_get_level() > 0) {
-            @ob_end_flush();
-        }
         flush();
     }
 

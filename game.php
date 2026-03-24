@@ -41,6 +41,10 @@ if (!$game) {
 if (!$game) {
   die('Juego no encontrado.');
 }
+$scriptDir = str_replace('\\', '/', dirname((string) ($_SERVER['SCRIPT_NAME'] ?? '/')));
+if ($scriptDir === '/' || $scriptDir === '.') {
+  $scriptDir = '';
+}
 $pageTitle = store_config_get('nombre_tienda', 'TVirtualGaming') . " | " . ($game["nombre"] ?? "Juego");
 include __DIR__ . "/includes/header.php";
 ?>
@@ -724,6 +728,7 @@ include __DIR__ . "/includes/header.php";
 </style>
 <script>
   // Todas las variables y lógica JS en un solo bloque
+  const appBasePath = <?= json_encode($scriptDir, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
   const defaultOrderEmail = <?= json_encode($loggedUserEmail, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
   const paymentMethodsByCurrency = <?= json_encode($paymentMethodsByCurrency, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
   const paymentSupportWhatsappBase = <?= json_encode($paymentSupportWhatsappBase, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
@@ -758,6 +763,11 @@ include __DIR__ . "/includes/header.php";
   const paymentModalAlert = document.getElementById('payment-modal-alert');
   const paymentModalReasons = document.getElementById('payment-modal-reasons');
   const paymentModalActions = document.getElementById('payment-modal-actions');
+
+  function buildAppUrl(path) {
+    const normalizedPath = String(path || '').startsWith('/') ? String(path || '') : `/${String(path || '')}`;
+    return `${appBasePath}${normalizedPath}`;
+  }
   const paymentTimerValue = document.getElementById('payment-timer-value');
   const paymentSummaryUser = document.getElementById('payment-summary-user');
   const paymentSummaryProduct = document.getElementById('payment-summary-product');
@@ -1420,7 +1430,7 @@ include __DIR__ . "/includes/header.php";
     setPaymentFormDisabled(true);
     setPaymentAlert('La orden expiró. Estamos cancelando el pedido y notificando por correo.', 'danger');
     try {
-      const response = await fetch('/api/pedidos.php', {
+      const response = await fetch(buildAppUrl('/api/pedidos.php'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `action=expire_order&order_id=${encodeURIComponent(activePaymentOrder.orderId)}`
@@ -1601,7 +1611,7 @@ include __DIR__ . "/includes/header.php";
                     return;
                   }
                   paymentCancelConfirmButton.disabled = true;
-                  fetch('/api/pedidos.php', {
+                  fetch(buildAppUrl('/api/pedidos.php'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: `action=cancel_order&order_id=${encodeURIComponent(activePaymentOrder.orderId)}`
@@ -1661,7 +1671,7 @@ include __DIR__ . "/includes/header.php";
                   setPaymentAlert('', 'info');
                   setLoadingModalContent('Enviando orden...', 'Estamos registrando tu comprobante y procesando la orden según la moneda del pedido. No cierres esta ventana.');
                   setOverlayVisible(loadingModal, true);
-                  fetch('/api/pedidos.php', {
+                  fetch(buildAppUrl('/api/pedidos.php'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: [
@@ -1740,7 +1750,10 @@ include __DIR__ . "/includes/header.php";
                   })
                   .catch((error) => {
                     setOverlayVisible(loadingModal, false);
-                    const errorMessage = error.message || 'No se pudo validar el pago por respuesta del servidor.';
+                    const rawErrorMessage = String((error && error.message) || '').trim();
+                    const errorMessage = rawErrorMessage.toLowerCase() === 'failed to fetch'
+                      ? 'No se pudo conectar con el servidor para validar el pago. Vuelve a intentarlo en unos segundos.'
+                      : (rawErrorMessage || 'No se pudo validar el pago por respuesta del servidor.');
                     setPaymentAlert(errorMessage, 'danger');
                     renderPaymentServerFailure(errorMessage, reference, paymentSummaryTotal ? paymentSummaryTotal.textContent : '');
                     setPaymentFormDisabled(false);
@@ -1803,7 +1816,7 @@ include __DIR__ . "/includes/header.php";
                   showToast('Ingresa un cupón.', 'error');
                   return;
                 }
-                fetch('../api/validar_cupon.php', {
+                fetch(buildAppUrl('/api/validar_cupon.php'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                   body: `code=${encodeURIComponent(cupon)}&pack_price=${encodeURIComponent(precioNumerico)}&currency=${encodeURIComponent(pack.moneda || '')}`
@@ -1937,7 +1950,7 @@ include __DIR__ . "/includes/header.php";
                 btn.disabled = true;
                 setLoadingModalContent('Procesando pedido...', 'Estamos registrando tu pedido para abrir el formulario de pago.');
                 setOverlayVisible(loadingModal, true);
-                fetch('/api/pedidos.php', {
+                fetch(buildAppUrl('/api/pedidos.php'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                   body: Object.keys(pedidoData).map(k => `${encodeURIComponent(k)}=${encodeURIComponent(pedidoData[k])}`).join('&')
