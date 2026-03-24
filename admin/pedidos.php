@@ -69,6 +69,73 @@ function order_provider_status_label(array $order): string {
   return 'Proveedor: ' . ($providerStatus !== '' ? $providerStatus : 'sin estado') . ' | ID externo: ' . $providerOrderId;
 }
 
+function order_provider_detail_lines(array $order): array {
+  $lines = [];
+
+  $providerMessage = trim((string) ($order['ff_api_mensaje'] ?? ''));
+  if ($providerMessage !== '') {
+    $lines[] = 'Respuesta API: ' . $providerMessage;
+  }
+
+  $providerCode = trim((string) ($order['recargas_api_codigo_entregado'] ?? ''));
+  if ($providerCode !== '') {
+    $lines[] = 'Código entregado: ' . $providerCode;
+  }
+
+  $refundAmount = isset($order['recargas_api_reembolso']) ? (float) $order['recargas_api_reembolso'] : 0.0;
+  if ($refundAmount > 0) {
+    $lines[] = 'Reembolso API: ' . format_money($refundAmount);
+  }
+
+  return $lines;
+}
+
+function order_provider_history_lines(array $order, int $limit = 3): array {
+  $json = $order['recargas_api_historial_json'] ?? null;
+  if (!is_string($json) || trim($json) === '') {
+    return [];
+  }
+
+  $decoded = json_decode($json, true);
+  if (!is_array($decoded)) {
+    return [];
+  }
+
+  $entries = array_slice(array_values(array_filter($decoded, 'is_array')), -$limit);
+  $lines = [];
+
+  foreach ($entries as $entry) {
+    $parts = [];
+    $recordedAt = trim((string) ($entry['recorded_at'] ?? ''));
+    $source = trim((string) ($entry['source'] ?? ''));
+    $providerStatus = trim((string) ($entry['provider_status'] ?? ''));
+    $localStatus = trim((string) ($entry['local_status'] ?? ''));
+    $providerMessage = trim((string) ($entry['provider_message'] ?? ''));
+
+    if ($recordedAt !== '') {
+      $parts[] = $recordedAt;
+    }
+    if ($source !== '') {
+      $parts[] = $source;
+    }
+    if ($providerStatus !== '') {
+      $parts[] = 'API: ' . $providerStatus;
+    }
+    if ($localStatus !== '') {
+      $parts[] = 'Local: ' . $localStatus;
+    }
+    if ($providerMessage !== '') {
+      $parts[] = $providerMessage;
+    }
+
+    if ($parts) {
+      $lines[] = 'Historial: ' . implode(' | ', $parts);
+    }
+  }
+
+  return $lines;
+}
+
 function order_normalize_date_query($value): string {
   $date = trim((string) $value);
   return preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 ? $date : '';
@@ -91,6 +158,8 @@ function order_search_index(array $order): string {
     $order['cupon'] ?? '',
     $order['estado'] ?? '',
     implode(' ', $playerFieldLines),
+    implode(' ', order_provider_detail_lines($order)),
+    implode(' ', order_provider_history_lines($order)),
   ];
 
   return strtolower(trim(implode(' ', array_map(static fn ($value) => trim((string) $value), $parts))));
@@ -300,6 +369,8 @@ if ($initialTab === '') {
                 <?php foreach ($list as $order): ?>
                   <?php $playerFieldLines = order_player_fields_lines($order); ?>
                   <?php $providerStatusLine = order_provider_status_label($order); ?>
+                  <?php $providerDetailLines = order_provider_detail_lines($order); ?>
+                  <?php $providerHistoryLines = order_provider_history_lines($order); ?>
                   <tr id="pedido-<?= $order['id'] ?>" data-order-row="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; color:#fff;">
                     <td style="background:#181f2a; color:#00fff7;">
                       <div style="font-weight:bold;">#<?= $order['id'] ?></div>
@@ -314,6 +385,12 @@ if ($initialTab === '') {
                       <?php if ($providerStatusLine !== ''): ?>
                         <div style="color:#fbbf24; margin-top:0.2rem; font-size:0.85em;"><?= htmlspecialchars($providerStatusLine) ?></div>
                       <?php endif; ?>
+                      <?php foreach ($providerDetailLines as $providerDetailLine): ?>
+                        <div style="color:#fca5a5; margin-top:0.2rem; font-size:0.85em;"><?= htmlspecialchars($providerDetailLine) ?></div>
+                      <?php endforeach; ?>
+                      <?php foreach ($providerHistoryLines as $providerHistoryLine): ?>
+                        <div style="color:#c4b5fd; margin-top:0.2rem; font-size:0.8em;"><?= htmlspecialchars($providerHistoryLine) ?></div>
+                      <?php endforeach; ?>
                     </td>
                     <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars(order_meta_value($order['numero_referencia'] ?? '')) ?></td>
                     <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars(order_meta_value($order['telefono_contacto'] ?? '')) ?></td>
@@ -355,6 +432,8 @@ if ($initialTab === '') {
             <?php foreach ($list as $order): ?>
               <?php $playerFieldLines = order_player_fields_lines($order); ?>
               <?php $providerStatusLine = order_provider_status_label($order); ?>
+              <?php $providerDetailLines = order_provider_detail_lines($order); ?>
+              <?php $providerHistoryLines = order_provider_history_lines($order); ?>
               <div id="pedido-card-<?= $order['id'] ?>" data-order-card="<?= $order['id'] ?>" data-status="<?= $st ?>" data-created-date="<?= htmlspecialchars(substr((string) ($order['creado_en'] ?? ''), 0, 10)) ?>" data-search-text="<?= htmlspecialchars(order_search_index($order)) ?>" style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem; color:#00fff7; margin-bottom:1.5rem;">
                 <div style="display:flex; align-items:center; justify-content:space-between;">
                   <div style="font-weight:bold; font-size:1.1em; color:#00fff7;">#<?= $order['id'] ?></div>
@@ -368,6 +447,12 @@ if ($initialTab === '') {
                 <?php if ($providerStatusLine !== ''): ?>
                   <div style="color:#fbbf24; font-size:0.9em;"><?= htmlspecialchars($providerStatusLine) ?></div>
                 <?php endif; ?>
+                <?php foreach ($providerDetailLines as $providerDetailLine): ?>
+                  <div style="color:#fca5a5; font-size:0.9em;"><?= htmlspecialchars($providerDetailLine) ?></div>
+                <?php endforeach; ?>
+                <?php foreach ($providerHistoryLines as $providerHistoryLine): ?>
+                  <div style="color:#c4b5fd; font-size:0.85em;"><?= htmlspecialchars($providerHistoryLine) ?></div>
+                <?php endforeach; ?>
                 <div style="color:#b2f6ff; font-size:1em;">Referencia: <?= htmlspecialchars(order_meta_value($order['numero_referencia'] ?? '')) ?></div>
                 <div style="color:#b2f6ff; font-size:1em;">Teléfono: <?= htmlspecialchars(order_meta_value($order['telefono_contacto'] ?? '')) ?></div>
                 <div style="margin-top:0.5em; color:#00fff7; font-size:1em;">Juego: <span style="color:#b2f6ff; font-weight:bold;">
@@ -758,6 +843,14 @@ if ($initialTab === '') {
           if (!res.ok || !data.ok) {
             throw new Error((data && data.message) ? data.message : 'No se pudo sincronizar el pedido con la API.');
           }
+          const syncNotes = [data.message || 'Pedido sincronizado correctamente.'];
+          if (data.provider_status) {
+            syncNotes.push(`Estado proveedor: ${data.provider_status}`);
+          }
+          if (data.provider_message) {
+            syncNotes.push(`Detalle API: ${data.provider_message}`);
+          }
+          alert(syncNotes.join('\n'));
           window.location.reload();
         } catch (err) {
           alert(err.message || 'No se pudo sincronizar el pedido con la API.');

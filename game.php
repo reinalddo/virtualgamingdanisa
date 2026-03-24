@@ -1144,10 +1144,23 @@ include __DIR__ . "/includes/header.php";
     return `${paymentSupportWhatsappBase}?text=${encodeURIComponent(message)}`;
   }
 
+  function extractPaymentReasons(data) {
+    const reasons = Array.isArray(data && data.reasons)
+      ? data.reasons.map((reason) => String(reason || '').trim()).filter(Boolean)
+      : [];
+    const providerMessage = String((data && data.provider_message) || '').trim();
+
+    if (providerMessage !== '' && !reasons.includes(providerMessage)) {
+      reasons.unshift(providerMessage);
+    }
+
+    return reasons;
+  }
+
   function renderPaymentFailureDetails(data, reference, totalText) {
     clearPaymentSupportUi();
     const failureType = String((data && data.failure_type) || 'server_or_data_mismatch');
-    const reasons = Array.isArray(data && data.reasons) ? data.reasons.filter(Boolean) : [];
+    const reasons = extractPaymentReasons(data);
     let title = 'No pudimos validar el pago automáticamente';
     let summary = 'La validación no se pudo completar con la respuesta actual del servidor bancario.';
     let steps = [
@@ -1203,6 +1216,49 @@ include __DIR__ . "/includes/header.php";
       paymentModalActions.className = 'payment-support-actions mb-4';
       paymentModalActions.innerHTML = `<a href="${escapePaymentHtml(whatsappUrl)}" target="_blank" rel="noopener noreferrer" class="payment-support-link">Contactar al administrador por WhatsApp</a>`;
     }
+    scrollPaymentModalToTop();
+  }
+
+  function renderProviderPaymentDetails(data, reference, totalText) {
+    clearPaymentSupportUi();
+
+    const providerFlow = String((data && data.provider_flow) || '').toLowerCase();
+    const reasons = extractPaymentReasons(data);
+    let title = 'La recarga requiere revisión manual';
+    let summary = 'El pago bancario fue verificado, pero el proveedor no confirmó una entrega automática.';
+    let steps = [
+      'Conserva el comprobante de pago y el número de referencia de esta orden.',
+      'Nuestro equipo revisará el pedido; si deseas acelerar la revisión, contáctanos por WhatsApp con tu comprobante.'
+    ];
+
+    if (providerFlow === 'accepted') {
+      title = 'La compra quedó en proceso';
+      summary = 'El proveedor aceptó la orden, pero todavía no reporta entrega final.';
+      steps = [
+        'Tu pago ya quedó verificado correctamente.',
+        'Nuestro equipo dará seguimiento al pedido hasta que el proveedor confirme el resultado final.'
+      ];
+    }
+
+    if (paymentModalReasons) {
+      paymentModalReasons.className = 'payment-reasons-card mb-3';
+      paymentModalReasons.innerHTML = `
+        <div class="payment-reasons-title">${escapePaymentHtml(title)}</div>
+        <div class="payment-reasons-summary">${escapePaymentHtml(summary)}</div>
+        <ol class="payment-reasons-steps">${steps.map((step) => `<li>${escapePaymentHtml(step)}</li>`).join('')}</ol>
+        ${reasons.length ? `
+          <div class="payment-reasons-caption">Respuesta reportada por la API:</div>
+          <ul>${reasons.map((reason) => `<li>${escapePaymentHtml(reason)}</li>`).join('')}</ul>
+        ` : ''}
+      `;
+    }
+
+    const whatsappUrl = buildPaymentSupportWhatsappUrl(activePaymentOrder ? activePaymentOrder.orderId : '', reference, totalText);
+    if (paymentModalActions && whatsappUrl) {
+      paymentModalActions.className = 'payment-support-actions mb-4';
+      paymentModalActions.innerHTML = `<a href="${escapePaymentHtml(whatsappUrl)}" target="_blank" rel="noopener noreferrer" class="payment-support-link">Contactar al administrador por WhatsApp</a>`;
+    }
+
     scrollPaymentModalToTop();
   }
 
@@ -1604,12 +1660,25 @@ include __DIR__ . "/includes/header.php";
 
                     if (nextState === 'pagado') {
                       const paidMessage = data.message || 'El pago fue confirmado correctamente.';
-                      setPaymentAlert(paidMessage, 'success');
-                      clearPaymentSupportUi();
+                      const providerFlow = String((data && data.provider_flow) || '').toLowerCase();
+                      const hasProviderDetails = extractPaymentReasons(data).length > 0;
+                      const isAcceptedFlow = providerFlow === 'accepted';
+                      const requiresManualReview = providerFlow === 'manual_review' || (!isAcceptedFlow && hasProviderDetails);
+
+                      setPaymentAlert(paidMessage, requiresManualReview ? 'warning' : (isAcceptedFlow ? 'info' : 'success'));
+                      if (hasProviderDetails || providerFlow === 'accepted') {
+                        renderProviderPaymentDetails(data, reference, paymentSummaryTotal ? paymentSummaryTotal.textContent : '');
+                      } else {
+                        clearPaymentSupportUi();
+                      }
                       setPaymentFormDisabled(true);
                       clearPaymentTimer();
                       setCancelOrderButtonMode('close');
-                      showPaymentStatusModal('Operación exitosa', paidMessage, 'success');
+                      showPaymentStatusModal(
+                        requiresManualReview ? 'Revisión requerida' : (isAcceptedFlow ? 'Compra en proceso' : 'Operación exitosa'),
+                        paidMessage,
+                        requiresManualReview ? 'danger' : (isAcceptedFlow ? 'info' : 'success')
+                      );
                       return;
                     }
 

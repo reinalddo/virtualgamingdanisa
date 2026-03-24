@@ -45,6 +45,7 @@ function ensure_pedidos_table(mysqli $mysqli): void {
         recargas_api_codigo_entregado LONGTEXT DEFAULT NULL,
         recargas_api_reembolso DECIMAL(12,2) DEFAULT NULL,
         recargas_api_ultimo_check DATETIME DEFAULT NULL,
+        recargas_api_historial_json LONGTEXT DEFAULT NULL,
         estado ENUM('pendiente','pagado','enviado','cancelado') NOT NULL DEFAULT 'pendiente',
         creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -82,6 +83,7 @@ function ensure_pedidos_table(mysqli $mysqli): void {
         'recargas_api_codigo_entregado' => "ALTER TABLE pedidos ADD COLUMN recargas_api_codigo_entregado LONGTEXT NULL AFTER recargas_api_estado",
         'recargas_api_reembolso' => "ALTER TABLE pedidos ADD COLUMN recargas_api_reembolso DECIMAL(12,2) NULL AFTER recargas_api_codigo_entregado",
         'recargas_api_ultimo_check' => "ALTER TABLE pedidos ADD COLUMN recargas_api_ultimo_check DATETIME NULL AFTER recargas_api_reembolso",
+        'recargas_api_historial_json' => "ALTER TABLE pedidos ADD COLUMN recargas_api_historial_json LONGTEXT NULL AFTER recargas_api_ultimo_check",
         'estado_pago_influencer' => "ALTER TABLE pedidos ADD COLUMN estado_pago_influencer ENUM('pendiente','pagado') NOT NULL DEFAULT 'pendiente' AFTER cupon",
         'estado' => "ALTER TABLE pedidos ADD COLUMN estado ENUM('pendiente','pagado','enviado','cancelado') NOT NULL DEFAULT 'pendiente' AFTER cupon",
         'creado_en' => "ALTER TABLE pedidos ADD COLUMN creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER estado",
@@ -917,6 +919,59 @@ function fetch_order_by_id(mysqli $mysqli, int $orderId): ?array {
     $order = $res ? $res->fetch_assoc() : null;
     $stmt->close();
     return $order ?: null;
+}
+
+function provider_history_from_json(?string $json): array {
+    if (!is_string($json) || trim($json) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+    return is_array($decoded) ? array_values(array_filter($decoded, 'is_array')) : [];
+}
+
+function provider_history_to_json(array $entries): string {
+    $normalized = array_values(array_filter($entries, 'is_array'));
+    $encoded = json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    return is_string($encoded) ? $encoded : '[]';
+}
+
+function build_provider_history_entry(string $source, string $providerStatus, string $localStatus, string $providerMessage, string $providerReference = '', ?string $providerOrderId = null, ?string $providerCode = null, $refundAmount = null): array {
+    $entry = [
+        'recorded_at' => date('Y-m-d H:i:s'),
+        'source' => trim($source) !== '' ? trim($source) : 'system',
+        'provider_status' => trim($providerStatus),
+        'local_status' => trim($localStatus),
+        'provider_message' => trim($providerMessage),
+        'provider_reference' => trim($providerReference),
+    ];
+
+    $providerOrderId = trim((string) $providerOrderId);
+    if ($providerOrderId !== '') {
+        $entry['provider_order_id'] = $providerOrderId;
+    }
+
+    $providerCode = trim((string) $providerCode);
+    if ($providerCode !== '') {
+        $entry['provider_code'] = $providerCode;
+    }
+
+    if ($refundAmount !== null && is_numeric($refundAmount)) {
+        $entry['refund_amount'] = round((float) $refundAmount, 2);
+    }
+
+    return $entry;
+}
+
+function append_provider_history(?string $existingJson, array $entry, int $limit = 5): string {
+    $history = provider_history_from_json($existingJson);
+    $history[] = $entry;
+
+    if (count($history) > $limit) {
+        $history = array_slice($history, -$limit);
+    }
+
+    return provider_history_to_json($history);
 }
 
 function fetch_active_payment_method(mysqli $mysqli, int $methodId): ?array {
@@ -2095,14 +2150,27 @@ function sync_local_order_with_provider_detail(mysqli $mysqli, array $order, arr
     if (!is_string($payloadJson)) {
         $payloadJson = (string) ($order['ff_api_payload'] ?? '');
     }
+    $historyJson = append_provider_history(
+        $order['recargas_api_historial_json'] ?? null,
+        build_provider_history_entry(
+            'sync',
+            $providerStatus,
+            $localStatus,
+            $providerMessage,
+            $providerReference,
+            $providerOrderId,
+            $providerCode,
+            $refundAmount
+        )
+    );
 
-    $stmt = $mysqli->prepare("UPDATE pedidos SET ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_codigo_entregado = ?, recargas_api_reembolso = ?, recargas_api_ultimo_check = NOW(), estado = ? WHERE id = ? LIMIT 1");
+    $stmt = $mysqli->prepare("UPDATE pedidos SET ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_codigo_entregado = ?, recargas_api_reembolso = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? LIMIT 1");
     if (!$stmt) {
         throw new RuntimeException('No se pudo preparar la sincronización del pedido local.');
     }
 
     $stmt->bind_param(
-        'ssssssdsi',
+        'ssssssdssi',
         $providerReference,
         $providerMessage,
         $payloadJson,
@@ -2110,6 +2178,7 @@ function sync_local_order_with_provider_detail(mysqli $mysqli, array $order, arr
         $providerStatus,
         $providerCode,
         $refundAmount,
+        $historyJson,
         $localStatus,
         $orderId
     );
@@ -2687,11 +2756,22 @@ if ($action === 'submit_payment') {
 
             if (!empty($freeFireResult['success'])) {
                 $verifiedStatus = 'enviado';
-                $verifyStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), estado = ? WHERE id = ? AND estado = 'pendiente'");
+                $providerHistoryJson = append_provider_history(
+                    $updatedOrder['recargas_api_historial_json'] ?? null,
+                    build_provider_history_entry(
+                        'purchase',
+                        $providerState,
+                        $verifiedStatus,
+                        $providerMessage,
+                        $providerReference,
+                        $providerOrderId
+                    )
+                );
+                $verifyStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
                 if (!$verifyStmt) {
                     json_error('No se pudo confirmar la recarga automáticamente.', 500);
                 }
-                $verifyStmt->bind_param('ssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $verifiedStatus, $orderId);
+                $verifyStmt->bind_param('sssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $providerHistoryJson, $verifiedStatus, $orderId);
                 if (!$verifyStmt->execute()) {
                     $verifyStmt->close();
                     json_error('No se pudo actualizar el pedido tras procesar la recarga.', 500);
@@ -2705,6 +2785,7 @@ if ($action === 'submit_payment') {
                     'order_id' => $orderId,
                     'estado' => 'enviado',
                     'verified' => true,
+                    'provider_flow' => 'completed',
                     'provider_reference' => $providerReference,
                     'provider_message' => $providerMessage,
                 ], 200, static function () use ($mysqli, $verifiedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage): void {
@@ -2715,11 +2796,22 @@ if ($action === 'submit_payment') {
 
             if (!empty($freeFireResult['accepted'])) {
                 $paidStatus = 'pagado';
-                $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), estado = ? WHERE id = ? AND estado = 'pendiente'");
+                $providerHistoryJson = append_provider_history(
+                    $updatedOrder['recargas_api_historial_json'] ?? null,
+                    build_provider_history_entry(
+                        'purchase',
+                        $providerState,
+                        $paidStatus,
+                        $providerMessage,
+                        $providerReference,
+                        $providerOrderId
+                    )
+                );
+                $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
                 if (!$paidStmt) {
                     json_error('No se pudo actualizar el pedido tras validar el pago.', 500);
                 }
-                $paidStmt->bind_param('ssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $paidStatus, $orderId);
+                $paidStmt->bind_param('sssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $providerHistoryJson, $paidStatus, $orderId);
                 if (!$paidStmt->execute()) {
                     $paidStmt->close();
                     json_error('No se pudo marcar el pedido como pagado.', 500);
@@ -2733,6 +2825,7 @@ if ($action === 'submit_payment') {
                     'order_id' => $orderId,
                     'estado' => 'pagado',
                     'verified' => true,
+                    'provider_flow' => 'accepted',
                     'reasons' => [$providerMessage],
                     'provider_reference' => $providerReference,
                     'provider_message' => $providerMessage,
@@ -2743,11 +2836,22 @@ if ($action === 'submit_payment') {
             }
 
             $paidStatus = 'pagado';
-            $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
+            $providerHistoryJson = append_provider_history(
+                $updatedOrder['recargas_api_historial_json'] ?? null,
+                build_provider_history_entry(
+                    'purchase',
+                    $providerState,
+                    $paidStatus,
+                    $providerMessage,
+                    $providerReference,
+                    $providerOrderId
+                )
+            );
+            $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
             if (!$paidStmt) {
                 json_error('No se pudo actualizar el pedido tras validar el pago.', 500);
             }
-            $paidStmt->bind_param('ssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $paidStatus, $orderId);
+            $paidStmt->bind_param('sssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerHistoryJson, $paidStatus, $orderId);
             if (!$paidStmt->execute()) {
                 $paidStmt->close();
                 json_error('No se pudo marcar el pedido como pagado.', 500);
@@ -2761,6 +2865,7 @@ if ($action === 'submit_payment') {
                 'order_id' => $orderId,
                 'estado' => 'pagado',
                 'verified' => true,
+                'provider_flow' => 'manual_review',
                 'reasons' => [$providerMessage],
                 'provider_reference' => $providerReference,
                 'provider_message' => $providerMessage,
