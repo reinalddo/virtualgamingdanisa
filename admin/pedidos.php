@@ -417,7 +417,7 @@ if ($initialTab === '') {
                           <option value="<?= $opt ?>"><?= htmlspecialchars(order_status_label($opt)) ?></option>
                         <?php endforeach; ?>
                       </select>
-                      <?php if (!empty($order['recargas_api_pedido_id'])): ?>
+                      <?php if (($order['estado'] ?? '') !== 'enviado' && !empty($order['recargas_api_pedido_id'])): ?>
                         <button type="button" class="btn btn-outline-warning btn-sm mt-2 js-sync-provider" data-order-id="<?= (int) $order['id'] ?>">Sincronizar API</button>
                       <?php endif; ?>
                     </td>
@@ -478,7 +478,7 @@ if ($initialTab === '') {
                     ><?= htmlspecialchars(order_status_label($opt)) ?></button>
                   <?php endforeach; ?>
                 </div>
-                <?php if (!empty($order['recargas_api_pedido_id'])): ?>
+                <?php if (($order['estado'] ?? '') !== 'enviado' && !empty($order['recargas_api_pedido_id'])): ?>
                   <button type="button" class="btn btn-outline-warning btn-sm mt-3 js-sync-provider" data-order-id="<?= (int) $order['id'] ?>">Sincronizar API</button>
                 <?php endif; ?>
               </div>

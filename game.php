@@ -768,6 +768,7 @@ include __DIR__ . "/includes/header.php";
     const normalizedPath = String(path || '').startsWith('/') ? String(path || '') : `/${String(path || '')}`;
     return `${appBasePath}${normalizedPath}`;
   }
+  let paymentStatusPollTimer = null;
   const paymentTimerValue = document.getElementById('payment-timer-value');
   const paymentSummaryUser = document.getElementById('payment-summary-user');
   const paymentSummaryProduct = document.getElementById('payment-summary-product');
@@ -1054,6 +1055,101 @@ include __DIR__ . "/includes/header.php";
     setOverlayVisible(paymentStatusModal, true);
   }
 
+  function clearPaymentStatusPolling() {
+    if (paymentStatusPollTimer) {
+      clearTimeout(paymentStatusPollTimer);
+      paymentStatusPollTimer = null;
+    }
+    if (paymentStatusModalAccept) {
+      paymentStatusModalAccept.disabled = false;
+      paymentStatusModalAccept.textContent = 'Aceptar';
+    }
+  }
+
+  function setPaymentStatusWaiting(isWaiting) {
+    if (!paymentStatusModalAccept) {
+      return;
+    }
+    paymentStatusModalAccept.disabled = !!isWaiting;
+    paymentStatusModalAccept.textContent = isWaiting ? 'Esperando confirmación...' : 'Aceptar';
+  }
+
+  async function pollOrderResolution(reference, totalText, attempt = 1) {
+    if (!activePaymentOrder || !activePaymentOrder.orderId) {
+      clearPaymentStatusPolling();
+      return;
+    }
+
+    const maxAttempts = 15;
+    const pollDelayMs = 4000;
+    const payload = new URLSearchParams();
+    payload.set('action', 'order_status');
+    payload.set('order_id', String(activePaymentOrder.orderId));
+    payload.set('attempt_sync', '1');
+    if (activePaymentOrder.email) {
+      payload.set('email', String(activePaymentOrder.email));
+    }
+
+    try {
+      const response = await fetch(buildAppUrl('/api/pedidos.php'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: payload.toString(),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        throw new Error((data && data.message) ? data.message : 'No se pudo consultar el estado del pedido.');
+      }
+
+      const nextState = String((data && data.estado) || '').toLowerCase();
+      if (nextState === 'enviado') {
+        clearPaymentStatusPolling();
+        clearPaymentSupportUi();
+        setPaymentAlert('Pago verificado y recarga procesada correctamente.', 'success');
+        setPaymentFormDisabled(true);
+        clearPaymentTimer();
+        setCancelOrderButtonMode('close');
+        showPaymentStatusModal('Operación exitosa', 'Pago verificado y recarga procesada correctamente.', 'success');
+        return;
+      }
+
+      if (nextState === 'cancelado') {
+        clearPaymentStatusPolling();
+        const cancelMessage = (data && data.provider_message) ? data.provider_message : 'El proveedor canceló la compra.';
+        setPaymentAlert(cancelMessage, 'danger');
+        renderProviderPaymentDetails(data, reference, totalText);
+        setPaymentFormDisabled(true);
+        clearPaymentTimer();
+        setCancelOrderButtonMode('close');
+        showPaymentStatusModal('No se pudo completar la operación', cancelMessage, 'danger');
+        return;
+      }
+
+      if (attempt >= maxAttempts) {
+        clearPaymentStatusPolling();
+        setPaymentAlert('La compra sigue en proceso. Puedes dejar esta ventana y el sistema continuará el seguimiento.', 'info');
+        renderProviderPaymentDetails(data, reference, totalText);
+        showPaymentStatusModal('Compra en proceso', 'La compra sigue en proceso. El sistema continuará el seguimiento automático.', 'info');
+        return;
+      }
+
+      renderProviderPaymentDetails(data, reference, totalText);
+      setPaymentStatusWaiting(true);
+      paymentStatusPollTimer = setTimeout(() => {
+        pollOrderResolution(reference, totalText, attempt + 1);
+      }, pollDelayMs);
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        clearPaymentStatusPolling();
+        return;
+      }
+
+      paymentStatusPollTimer = setTimeout(() => {
+        pollOrderResolution(reference, totalText, attempt + 1);
+      }, 5000);
+    }
+  }
+
   function showToast(msg, type) {
     const toast = document.createElement('div');
     toast.textContent = msg;
@@ -1122,6 +1218,7 @@ include __DIR__ . "/includes/header.php";
   }
 
   function clearPaymentSupportUi() {
+    clearPaymentStatusPolling();
     if (paymentModalReasons) {
       paymentModalReasons.className = 'd-none payment-reasons-card mb-3';
       paymentModalReasons.innerHTML = '';
@@ -1142,6 +1239,7 @@ include __DIR__ . "/includes/header.php";
 
   if (paymentStatusModalAccept) {
     paymentStatusModalAccept.addEventListener('click', function() {
+      clearPaymentStatusPolling();
       setOverlayVisible(paymentStatusModal, false);
       scrollPaymentModalToTop();
     });
@@ -1460,7 +1558,7 @@ include __DIR__ . "/includes/header.php";
     paymentTimerValue.textContent = `${minutes}:${seconds}`;
   }
 
-  function openPaymentModal(orderId, expiresAt, remainingSeconds, pack, userId, totalText) {
+  function openPaymentModal(orderId, expiresAt, remainingSeconds, pack, userId, totalText, orderEmail) {
     const currentMethod = renderPaymentMethodsByCurrency(pack.moneda || '');
     if (!currentMethod) {
       showToast(`No hay métodos de pago activos para la moneda ${pack.moneda || ''}.`, 'error');
@@ -1474,6 +1572,7 @@ include __DIR__ . "/includes/header.php";
       expiresAtMs: Date.now() + (safeRemainingSeconds * 1000),
       expiresAt,
       currency: pack.moneda || '',
+      email: orderEmail || '',
       expiring: false,
     };
 
@@ -1716,7 +1815,7 @@ include __DIR__ . "/includes/header.php";
                       const paidMessage = data.message || 'El pago fue confirmado correctamente.';
                       const providerFlow = String((data && data.provider_flow) || '').toLowerCase();
                       const hasProviderDetails = extractPaymentReasons(data).length > 0;
-                      const isAcceptedFlow = providerFlow === 'accepted';
+                      const isAcceptedFlow = providerFlow === 'accepted' || providerFlow === 'tracking';
                       const requiresManualReview = providerFlow === 'manual_review' || (!isAcceptedFlow && hasProviderDetails);
 
                       setPaymentAlert(paidMessage, requiresManualReview ? 'warning' : (isAcceptedFlow ? 'info' : 'success'));
@@ -1733,6 +1832,10 @@ include __DIR__ . "/includes/header.php";
                         paidMessage,
                         requiresManualReview ? 'danger' : (isAcceptedFlow ? 'info' : 'success')
                       );
+                      if (providerFlow === 'accepted' || providerFlow === 'tracking') {
+                        setPaymentStatusWaiting(true);
+                        pollOrderResolution(reference, paymentSummaryTotal ? paymentSummaryTotal.textContent : '', 1);
+                      }
                       return;
                     }
 
@@ -1971,7 +2074,7 @@ include __DIR__ . "/includes/header.php";
                     }
                   }
                   if (data && data.ok) {
-                    const opened = openPaymentModal(data.order_id, data.expires_at, data.remaining_seconds, pack, userId, selectedPrice.textContent);
+                    const opened = openPaymentModal(data.order_id, data.expires_at, data.remaining_seconds, pack, userId, selectedPrice.textContent, email);
                     if (opened) {
                       showToast('Pedido registrado. Completa ahora los datos del pago.', 'success');
                     }

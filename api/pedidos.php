@@ -1488,6 +1488,23 @@ function provider_message_indicates_transport_timeout(string $message): bool {
         || str_contains($normalized, 'failed to connect');
 }
 
+function order_provider_flow_from_row(array $order): string {
+    $localStatus = strtolower(trim((string) ($order['estado'] ?? '')));
+    if ($localStatus === 'enviado') {
+        return 'completed';
+    }
+    if ($localStatus === 'cancelado') {
+        return 'cancelled';
+    }
+
+    $providerStatus = strtolower(trim((string) ($order['recargas_api_estado'] ?? '')));
+    if ($providerStatus === 'pending_confirmation') {
+        return 'tracking';
+    }
+
+    return $localStatus === 'pagado' ? 'accepted' : '';
+}
+
 function build_provider_sync_snapshot(array $order, ?string $syncError = null): array {
     return [
         'order' => $order,
@@ -3695,6 +3712,58 @@ if ($action === 'cancel_order') {
         'message' => $result['message'],
         'estado' => 'cancelado',
         'order_id' => $orderId,
+    ]);
+}
+
+if ($action === 'order_status') {
+    $orderId = intval($_POST['order_id'] ?? $_GET['order_id'] ?? 0);
+    if ($orderId <= 0) {
+        json_error('Pedido inválido.');
+    }
+
+    $order = fetch_order_by_id($mysqli, $orderId);
+    if (!$order) {
+        json_error('Pedido no encontrado.', 404);
+    }
+
+    $sessionUserId = isset($_SESSION['auth_user']['id']) ? (int) $_SESSION['auth_user']['id'] : 0;
+    $sessionUserRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+    $providedEmail = sanitize_str($_POST['email'] ?? $_GET['email'] ?? null, 180);
+    $emailMatches = $providedEmail !== null
+        && strcasecmp(trim((string) ($order['email'] ?? '')), trim((string) $providedEmail)) === 0;
+    $ownsOrder = $sessionUserId > 0 && $sessionUserId === (int) ($order['cliente_usuario_id'] ?? 0);
+    $isStaff = in_array($sessionUserRole, ['admin', 'empleado'], true);
+
+    if (!$emailMatches && !$ownsOrder && !$isStaff) {
+        json_error('No autorizado.', 403);
+    }
+
+    $attemptSync = !empty($_POST['attempt_sync']) || !empty($_GET['attempt_sync']);
+    if ($attemptSync && (string) ($order['estado'] ?? '') === 'pagado') {
+        try {
+            $providerOrderId = trim((string) ($order['recargas_api_pedido_id'] ?? ''));
+            if ($providerOrderId !== '') {
+                $syncResult = try_auto_sync_provider_order($mysqli, $order, 1, 0);
+                $order = is_array($syncResult['order'] ?? null) ? $syncResult['order'] : (fetch_order_by_id($mysqli, $orderId) ?: $order);
+            } else {
+                $syncResult = try_recover_uncertain_provider_purchase($mysqli, $order, 1, 0);
+                $order = is_array($syncResult['order'] ?? null) ? $syncResult['order'] : (fetch_order_by_id($mysqli, $orderId) ?: $order);
+            }
+        } catch (Throwable $e) {
+            error_log('TVG order_status sync attempt failed for order #' . $orderId . ': ' . $e->getMessage());
+            $order = fetch_order_by_id($mysqli, $orderId) ?: $order;
+        }
+    }
+
+    json_response([
+        'ok' => true,
+        'order_id' => $orderId,
+        'estado' => (string) ($order['estado'] ?? ''),
+        'provider_flow' => order_provider_flow_from_row($order),
+        'provider_status' => (string) ($order['recargas_api_estado'] ?? ''),
+        'provider_reference' => (string) ($order['ff_api_referencia'] ?? ''),
+        'provider_message' => (string) ($order['ff_api_mensaje'] ?? ''),
+        'provider_code' => (string) ($order['recargas_api_codigo_entregado'] ?? ''),
     ]);
 }
 
