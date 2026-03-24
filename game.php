@@ -1171,6 +1171,22 @@ include __DIR__ . "/includes/header.php";
     return reasons;
   }
 
+  function normalizeProviderReasonsForDisplay(providerFlow, reasons) {
+    const flow = String(providerFlow || '').toLowerCase();
+    const list = Array.isArray(reasons) ? reasons.slice() : [];
+
+    if (flow !== 'tracking') {
+      return list;
+    }
+
+    const filtered = list.filter((reason) => !/json|timed out|timeout|0 bytes|respuesta vac[ií]a|incompleta|empty body|empty reply/i.test(String(reason || '')));
+    if (filtered.length) {
+      return filtered;
+    }
+
+    return ['La confirmación automática del proveedor quedó pendiente y será resuelta por webhook o por sincronización posterior.'];
+  }
+
   function renderSupportCard(container, title, summary, steps, reasons) {
     if (!container) {
       return;
@@ -1256,7 +1272,7 @@ include __DIR__ . "/includes/header.php";
     clearPaymentSupportUi();
 
     const providerFlow = String((data && data.provider_flow) || '').toLowerCase();
-    const reasons = extractPaymentReasons(data);
+    const reasons = normalizeProviderReasonsForDisplay(providerFlow, extractPaymentReasons(data));
     let title = 'La recarga requiere revisión manual';
     let summary = 'El pago bancario fue verificado, pero el proveedor no confirmó una entrega automática.';
     let steps = [
@@ -1278,7 +1294,8 @@ include __DIR__ . "/includes/header.php";
       summary = 'El pago ya fue verificado. La API del proveedor no respondió a tiempo, pero el sistema seguirá consultando hasta confirmar el resultado.';
       steps = [
         'Tu pago quedó verificado correctamente y la orden sigue activa.',
-        'Primero intentaremos resolverla por webhook; si no llega confirmación, el sistema hará sincronización automática posterior.'
+        'Primero intentaremos resolverla por webhook; si no llega confirmación, el sistema hará sincronización automática posterior.',
+        'Si el proveedor no confirma pronto, el equipo también podrá revisarla desde la sincronización manual del panel.'
       ];
     }
 

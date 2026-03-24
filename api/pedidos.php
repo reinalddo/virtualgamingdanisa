@@ -690,6 +690,90 @@ function app_base_url(): string {
     return $scheme . '://' . $host;
 }
 
+function is_public_callback_host(string $host): bool {
+    $host = strtolower(trim($host, '[] '));
+    if ($host === '' || $host === 'localhost' || $host === '::1') {
+        return false;
+    }
+    if (str_contains($host, '.local') || str_contains($host, '.test')) {
+        return false;
+    }
+    if (preg_match('/^127\./', $host) === 1 || preg_match('/^10\./', $host) === 1 || preg_match('/^192\.168\./', $host) === 1) {
+        return false;
+    }
+    if (preg_match('/^172\.(1[6-9]|2[0-9]|3[0-1])\./', $host) === 1) {
+        return false;
+    }
+
+    return true;
+}
+
+function resolve_provider_webhook_url(): ?string {
+    $configuredUrl = trim((string) getenv('TVG_RECARGAS_WEBHOOK_URL'));
+    if ($configuredUrl === '') {
+        $configuredUrl = trim(store_config_get('recargas_webhook_url', ''));
+    }
+
+    $candidate = $configuredUrl !== '' ? $configuredUrl : (app_base_url() . '/api/recargas_webhook.php');
+    if (!preg_match('#^https?://#i', $candidate)) {
+        return null;
+    }
+
+    $host = parse_url($candidate, PHP_URL_HOST);
+    if (!is_string($host) || !is_public_callback_host($host)) {
+        return null;
+    }
+
+    return rtrim($candidate, '/');
+}
+
+function extract_registered_provider_webhook_url(array $response): string {
+    $candidates = [
+        $response['url'] ?? null,
+        $response['webhook'] ?? null,
+        is_array($response['webhook'] ?? null) ? ($response['webhook']['url'] ?? null) : null,
+        is_array($response['data'] ?? null) ? ($response['data']['url'] ?? null) : null,
+    ];
+
+    foreach ($candidates as $candidate) {
+        if (is_array($candidate)) {
+            $candidate = $candidate['url'] ?? null;
+        }
+
+        $value = trim((string) $candidate);
+        if ($value !== '') {
+            return rtrim($value, '/');
+        }
+    }
+
+    return '';
+}
+
+function ensure_provider_webhook_registration(): void {
+    $desiredUrl = resolve_provider_webhook_url();
+    if ($desiredUrl === null) {
+        error_log('TVG provider webhook registration skipped: no public callback URL available.');
+        return;
+    }
+
+    try {
+        $current = recargas_api_get_webhook();
+        $currentUrl = extract_registered_provider_webhook_url($current);
+        if ($currentUrl === $desiredUrl) {
+            return;
+        }
+    } catch (Throwable $e) {
+        error_log('TVG provider webhook lookup failed: ' . $e->getMessage());
+    }
+
+    try {
+        recargas_api_register_webhook($desiredUrl);
+        error_log('TVG provider webhook registered: ' . $desiredUrl);
+    } catch (Throwable $e) {
+        error_log('TVG provider webhook registration failed: ' . $e->getMessage());
+    }
+}
+
 function detect_local_file_mime_type(string $filePath): string {
     if (function_exists('mime_content_type')) {
         $mime = @mime_content_type($filePath);
@@ -3298,6 +3382,7 @@ if ($action === 'submit_payment') {
                     'provider_reference' => $providerReference,
                     'provider_message' => $providerMessage,
                 ], 200, static function () use ($mysqli, $verifiedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage): void {
+                    ensure_provider_webhook_registration();
                     register_influencer_coupon_sale($mysqli, $verifiedOrder);
                     notify_free_fire_recharge_success($mysqli, $verifiedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage);
                 });
@@ -3345,6 +3430,7 @@ if ($action === 'submit_payment') {
                     'provider_reference' => $providerReference,
                     'provider_message' => $providerMessage,
                 ], 200, static function () use ($mysqli, $paidOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage, $orderId): void {
+                    ensure_provider_webhook_registration();
                     register_influencer_coupon_sale($mysqli, $paidOrder);
                     notify_catalog_purchase_pending($mysqli, $paidOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage);
                     continue_provider_follow_up_in_background($mysqli, (int) ($paidOrder['id'] ?? $orderId), 8, 8);
@@ -3425,6 +3511,7 @@ if ($action === 'submit_payment') {
                     'provider_reference' => $providerReference,
                     'provider_message' => $providerMessage,
                 ], 200, static function () use ($mysqli, $paidOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage): void {
+                    ensure_provider_webhook_registration();
                     register_influencer_coupon_sale($mysqli, $paidOrder);
                     notify_catalog_purchase_pending($mysqli, $paidOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage);
                     continue_provider_follow_up_in_background($mysqli, (int) ($paidOrder['id'] ?? 0), 8, 8);
