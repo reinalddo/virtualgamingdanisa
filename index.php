@@ -182,6 +182,12 @@ $accentMap = [
           color: rgba(255, 255, 255, 0.88);
           transform: scale(1.03);
         }
+        .store-game-card {
+          transition: transform 0.35s ease;
+        }
+        .store-game-card:hover {
+          transform: translateY(-6px);
+        }
         .startup-popup-logo {
           width: 58px;
           height: 58px;
@@ -629,7 +635,7 @@ $accentMap = [
         <div class="mt-4 row row-cols-2 row-cols-sm-3 row-cols-lg-4 g-3">
           <?php foreach ($popularGames as $game): ?>
             <div class="col">
-              <a href="/juego/<?= urlencode($game['id']) ?>" class="d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
+              <a href="/juego/<?= urlencode($game['id']) ?>" class="store-game-card d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
                 <div class="position-relative overflow-hidden rounded-3" style="aspect-ratio:1/1;">
                   <img src="/<?= htmlspecialchars($game['imagen'] ?? '', ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($game['nombre'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="img-fluid w-100 h-100 object-fit-cover" style="aspect-ratio:1/1;" />
                   <span title="Popular" class="position-absolute top-0 end-0 text-success fs-4" style="text-shadow:0 0 4px #000;">★</span>
@@ -679,7 +685,7 @@ $accentMap = [
         <div class="mt-4 row row-cols-2 row-cols-sm-3 row-cols-lg-4 g-3">
           <?php foreach ($moreGames as $game): ?>
             <div class="col">
-              <a href="/juego/<?= urlencode($game['id']) ?>" class="d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
+              <a href="/juego/<?= urlencode($game['id']) ?>" class="store-game-card d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
                 <div class="position-relative overflow-hidden rounded-3" style="aspect-ratio:1/1;">
                   <img src="/<?= htmlspecialchars($game['imagen'] ?? '', ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($game['nombre'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="img-fluid w-100 h-100 object-fit-cover" style="aspect-ratio:1/1;" />
                   <?php if (!empty($game['popular'])): ?>

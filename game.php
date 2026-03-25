@@ -162,7 +162,6 @@ include __DIR__ . "/includes/header.php";
               <?php else: ?>
                 <span class="pack-card-placeholder">PK</span>
               <?php endif; ?>
-              <div class="pack-card-glow"></div>
             </div>
             <div class="pack-card-content">
               <p class="pack-card-name mb-0 fw-semibold"><?= htmlspecialchars($pack['nombre'], ENT_QUOTES, 'UTF-8') ?></p>
