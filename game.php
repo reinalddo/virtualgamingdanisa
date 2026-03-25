@@ -590,15 +590,25 @@ include __DIR__ . "/includes/header.php";
 
   .pack-card {
     min-height: 15rem;
-      padding: 0;
-    border-width: 1px;
+    position: relative;
+    padding: 0;
     border-radius: 1.1rem;
+    border: 0 !important;
     overflow: hidden;
-      appearance: none;
+    appearance: none;
     background:
       radial-gradient(circle at top, rgba(var(--theme-button-primary-rgb), 0.18), transparent 45%),
       linear-gradient(180deg, rgba(var(--theme-button-surface-rgb), 0.98), rgba(var(--theme-bg-main-rgb), 0.98));
     transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+
+  .pack-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px rgba(var(--theme-button-primary-rgb), 0.95);
+    pointer-events: none;
   }
 
   .pack-card:hover {
@@ -613,15 +623,15 @@ include __DIR__ . "/includes/header.php";
   }
 
   .pack-card-media {
-    width: calc(100% + 2px);
-    margin: -1px -1px 0;
+    width: 100%;
+    margin: 0;
     min-height: 8.5rem;
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
     overflow: hidden;
-    border-radius: 1rem 1rem 0 0;
+    border-radius: calc(1.1rem - 1px) calc(1.1rem - 1px) 0 0;
     background: linear-gradient(180deg, rgba(var(--theme-bg-main-rgb), 0.45), rgba(var(--theme-bg-main-rgb), 0.05));
     flex-shrink: 0;
   }
@@ -697,10 +707,13 @@ include __DIR__ . "/includes/header.php";
 
   .neon-selected {
     box-shadow: 0 0 16px 4px rgba(var(--theme-button-primary-rgb), 0.95), 0 0 32px 8px rgba(var(--theme-button-secondary-rgb), 0.75);
-    border: 2px solid var(--theme-button-primary) !important;
     background: var(--theme-surface-alt) !important;
     transition: box-shadow 0.2s, border-color 0.2s;
     z-index: 2;
+  }
+
+  .neon-selected::after {
+    box-shadow: inset 0 0 0 2px var(--theme-button-primary);
   }
 
   .neon-selected .pack-card-footer {
