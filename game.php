@@ -590,9 +590,11 @@ include __DIR__ . "/includes/header.php";
 
   .pack-card {
     min-height: 15rem;
+      padding: 0;
     border-width: 1px;
     border-radius: 1.1rem;
     overflow: hidden;
+      appearance: none;
     background:
       radial-gradient(circle at top, rgba(var(--theme-button-primary-rgb), 0.18), transparent 45%),
       linear-gradient(180deg, rgba(var(--theme-button-surface-rgb), 0.98), rgba(var(--theme-bg-main-rgb), 0.98));
@@ -606,16 +608,20 @@ include __DIR__ . "/includes/header.php";
 
   .pack-card .card-body {
     min-height: 100%;
+    display: flex;
+    flex-direction: column;
   }
 
   .pack-card-media {
-    width: 100%;
+    width: calc(100% + 2px);
+    margin: -1px -1px 0;
     min-height: 8.5rem;
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
     overflow: hidden;
+    border-radius: 1rem 1rem 0 0;
     background: linear-gradient(180deg, rgba(var(--theme-bg-main-rgb), 0.45), rgba(var(--theme-bg-main-rgb), 0.05));
     flex-shrink: 0;
   }
