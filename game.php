@@ -397,6 +397,8 @@ include __DIR__ . "/includes/header.php";
     background: rgba(5, 10, 20, 0.78);
     backdrop-filter: blur(4px);
     overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .app-overlay-modal.is-visible {
@@ -419,6 +421,7 @@ include __DIR__ . "/includes/header.php";
 
   .payment-modal-dialog {
     width: min(94vw, 34rem) !important;
+    margin: auto;
   }
 
   .payment-modal-content {
@@ -564,7 +567,7 @@ include __DIR__ . "/includes/header.php";
   @media (max-width: 575.98px) {
     .app-overlay-modal {
       align-items: flex-start;
-      padding: 0.55rem;
+      padding: 0.55rem 0.55rem calc(1rem + env(safe-area-inset-bottom));
     }
 
     .app-overlay-modal .modal-dialog,
@@ -573,9 +576,19 @@ include __DIR__ . "/includes/header.php";
       margin: 0 auto;
     }
 
+    .payment-modal-dialog {
+      display: flex;
+      align-items: flex-start;
+      min-height: calc(100dvh - 1.1rem);
+    }
+
     .payment-modal-content {
       padding: 1rem;
-      max-height: calc(100vh - 1.1rem);
+      width: 100%;
+      max-height: none;
+      overflow: visible;
+      overscroll-behavior: auto;
+      padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
       border-radius: 1.1rem;
     }
 
@@ -1033,6 +1046,26 @@ include __DIR__ . "/includes/header.php";
     } else {
       lastFocusedElement = null;
     }
+  }
+
+  function keepPaymentFieldVisible(target) {
+    if (!(target instanceof HTMLElement) || !paymentModal || !paymentModal.classList.contains('is-visible')) {
+      return;
+    }
+
+    if (!paymentModal.contains(target) || window.innerWidth > 575.98) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }, 220);
+  }
+
+  if (paymentModal) {
+    paymentModal.addEventListener('focusin', (event) => {
+      keepPaymentFieldVisible(event.target);
+    });
   }
 
   function removeBuySpinner() {

@@ -244,8 +244,8 @@ if ($resPaquetes instanceof mysqli_result) {
             $juego_edit = $res_edit->get_result()->fetch_assoc();
             if ($juego_edit):
     ?>
-    <div class="fixed-top w-100 h-100 d-flex align-items-center justify-content-center" style="background:rgba(0,0,0,0.7);z-index:1050;">
-        <form method="post" enctype="multipart/form-data" class="bg-dark neon-card p-4 rounded-4 position-relative" style="max-width:600px;width:100%;box-shadow:0 0 2rem #00fff733;">
+    <div class="fixed-top w-100 h-100 d-flex align-items-start justify-content-center" style="background:rgba(0,0,0,0.7);z-index:1050;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1rem;">
+        <form method="post" enctype="multipart/form-data" class="bg-dark neon-card p-4 rounded-4 position-relative" style="max-width:600px;width:100%;max-height:calc(100dvh - 2rem);overflow-y:auto;-webkit-overflow-scrolling:touch;box-shadow:0 0 2rem #00fff733;margin:auto;">
             <h3 class="text-neon mb-3">Editar juego</h3>
             <input type="hidden" name="edit_juego_id" value="<?= $juego_edit['id'] ?>">
             <div class="mb-3">
