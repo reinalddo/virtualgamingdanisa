@@ -10,6 +10,16 @@ $res = $mysqli->query("SELECT * FROM juegos ORDER BY id DESC");
 $allGames = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
 ?>
 
+<style>
+  .store-game-card {
+    transition: transform 0.35s ease;
+  }
+
+  .store-game-card:hover {
+    transform: translateY(-6px);
+  }
+</style>
+
 
 <section class="mt-6">
   <div class="flex items-center justify-between">
@@ -27,7 +37,7 @@ $allGames = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
         if ($paqCount == 0) continue;
       ?>
       <div class="col">
-        <a href="/juego/<?= urlencode($game['id']) ?>" class="d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
+        <a href="/juego/<?= urlencode($game['id']) ?>" class="store-game-card d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
           <div class="position-relative overflow-hidden rounded-3" style="aspect-ratio:1/1;">
             <img src="/<?= htmlspecialchars($game['imagen'] ?? '', ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($game['nombre'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="img-fluid w-100 h-100 object-fit-cover" style="aspect-ratio:1/1;" />
             <?php if (!empty($game['popular'])): ?>
