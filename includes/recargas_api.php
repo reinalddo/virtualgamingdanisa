@@ -609,7 +609,18 @@ function recargas_api_purchase_is_completed(array $response): bool {
     }
 
     $status = strtolower(trim((string) ($response['estado'] ?? '')));
-    return $status === '' || in_array($status, ['completado', 'completed', 'success', 'enviado'], true);
+    if (in_array($status, ['completado', 'completed', 'success', 'enviado'], true)) {
+        return true;
+    }
+
+    foreach (['codigo_entregado', 'codigo', 'pin', 'serial', 'voucher'] as $key) {
+        $value = trim((string) ($response[$key] ?? ''));
+        if ($value !== '') {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function recargas_api_product_label(array $product): string {

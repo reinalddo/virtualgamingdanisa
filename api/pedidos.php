@@ -3873,6 +3873,272 @@ if ($action === 'sync_provider_status') {
     ]);
 }
 
+if ($action === 'admin_retry_recharge') {
+    $adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
+    if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {
+        json_error('No autorizado', 403);
+    }
+
+    $orderId = intval($_POST['order_id'] ?? $_GET['order_id'] ?? 0);
+    if ($orderId <= 0) {
+        json_error('Pedido invalido.');
+    }
+
+    $order = fetch_order_by_id($mysqli, $orderId);
+    if (!$order) {
+        json_error('Pedido no encontrado.', 404);
+    }
+
+    if ((string) ($order['estado'] ?? '') !== 'pagado') {
+        json_error('Solo se pueden reenviar recargas de pedidos verificados.', 409);
+    }
+
+    if (trim((string) ($order['recargas_api_pedido_id'] ?? '')) !== '') {
+        json_error('Este pedido ya tiene una orden API asociada. Usa Sincronizar API.', 409);
+    }
+
+    $gameId = (int) ($order['juego_id'] ?? 0);
+    $verifiedReference = (string) ($order['numero_referencia'] ?? '');
+    $phone = (string) ($order['telefono_contacto'] ?? '');
+    $paymentMethodName = 'Panel administrativo';
+
+    if (game_uses_catalog_api($mysqli, $gameId)) {
+        $packageApiId = (int) ($order['paquete_api'] ?? 0);
+        if ($packageApiId <= 0) {
+            json_error('Este pedido no tiene un producto API configurado.', 409);
+        }
+
+        $orderPlayerFields = order_player_fields_from_json((string) ($order['player_fields_json'] ?? ''));
+
+        try {
+            $providerResult = execute_catalog_api_purchase($packageApiId, (string) ($order['user_identifier'] ?? ''), $orderPlayerFields);
+        } catch (Throwable $e) {
+            $providerResult = [
+                'success' => false,
+                'accepted' => false,
+                'message' => $e->getMessage(),
+                'reference' => '',
+                'payload' => ['exception' => $e->getMessage()],
+            ];
+        }
+
+        $mysqli = ensure_mysqli_connection($mysqli);
+        $providerReference = (string) ($providerResult['reference'] ?? '');
+        $providerMessage = (string) ($providerResult['message'] ?? 'No se recibio mensaje del proveedor.');
+        $providerPayload = json_encode($providerResult['payload'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($providerPayload)) {
+            $providerPayload = '{}';
+        }
+        $providerOrderId = recargas_api_extract_provider_order_id((array) ($providerResult['payload'] ?? []));
+        $providerState = strtolower(trim((string) (($providerResult['payload']['estado'] ?? ''))));
+
+        if (!empty($providerResult['success'])) {
+            $sentStatus = 'enviado';
+            $providerHistoryJson = append_provider_history(
+                $order['recargas_api_historial_json'] ?? null,
+                build_provider_history_entry('admin_retry_purchase', $providerState, $sentStatus, $providerMessage, $providerReference, $providerOrderId)
+            );
+            $stmt = $mysqli->prepare("UPDATE pedidos SET ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pagado'");
+            if (!$stmt) {
+                json_error('No se pudo actualizar el pedido tras reenviar la recarga.', 500);
+            }
+            $stmt->bind_param('sssssssi', $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $providerHistoryJson, $sentStatus, $orderId);
+            if (!$stmt->execute()) {
+                $stmt->close();
+                json_error('No se pudo guardar el resultado de la recarga.', 500);
+            }
+            $stmt->close();
+
+            $updatedOrder = fetch_order_by_id($mysqli, $orderId) ?: $order;
+            json_response([
+                'ok' => true,
+                'message' => 'La recarga fue reenviada y procesada correctamente.',
+                'order_id' => $orderId,
+                'estado' => 'enviado',
+                'provider_flow' => 'completed',
+                'provider_reference' => $providerReference,
+                'provider_status' => $providerState,
+                'provider_message' => $providerMessage,
+            ], 200, static function () use ($mysqli, $updatedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage): void {
+                ensure_provider_webhook_registration();
+                notify_free_fire_recharge_success($mysqli, $updatedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage);
+            });
+        }
+
+        $manualProcessing = !empty($providerResult['manual_processing']);
+        $acceptedLike = !empty($providerResult['accepted'])
+            || ($manualProcessing && provider_message_indicates_pending_lookup($providerMessage));
+        $trackingFollowUp = provider_message_indicates_transport_timeout($providerMessage);
+
+        if ($trackingFollowUp || $acceptedLike) {
+            $trackedState = $providerState !== '' ? $providerState : ($trackingFollowUp ? 'pending_confirmation' : 'accepted');
+            $providerHistoryJson = append_provider_history(
+                $order['recargas_api_historial_json'] ?? null,
+                build_provider_history_entry(
+                    $trackingFollowUp ? 'admin_retry_purchase_timeout' : 'admin_retry_purchase',
+                    $trackedState,
+                    'pagado',
+                    $providerMessage,
+                    $providerReference,
+                    $providerOrderId
+                )
+            );
+            $stmt = $mysqli->prepare("UPDATE pedidos SET ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ? WHERE id = ? AND estado = 'pagado'");
+            if (!$stmt) {
+                json_error('No se pudo actualizar el pedido para seguimiento.', 500);
+            }
+            $stmt->bind_param('ssssssi', $providerReference, $providerMessage, $providerPayload, $providerOrderId, $trackedState, $providerHistoryJson, $orderId);
+            if (!$stmt->execute()) {
+                $stmt->close();
+                json_error('No se pudo guardar el seguimiento del proveedor.', 500);
+            }
+            $stmt->close();
+
+            $updatedOrder = fetch_order_by_id($mysqli, $orderId) ?: $order;
+            $autoSyncAttempts = $manualProcessing ? 5 : 3;
+            $autoSyncDelaySeconds = $manualProcessing ? 4 : 2;
+            $autoSyncResult = try_auto_sync_provider_order($mysqli, $updatedOrder, $autoSyncAttempts, $autoSyncDelaySeconds);
+            if (is_array($autoSyncResult)) {
+                $updatedOrder = is_array($autoSyncResult['order'] ?? null) ? $autoSyncResult['order'] : $updatedOrder;
+                $providerMessage = trim((string) ($autoSyncResult['provider_message'] ?? $providerMessage));
+                $providerReference = trim((string) ($autoSyncResult['provider_reference'] ?? $providerReference));
+                $resolvedStatus = trim((string) ($autoSyncResult['local_status'] ?? ''));
+
+                if ($resolvedStatus === 'enviado') {
+                    json_response([
+                        'ok' => true,
+                        'message' => 'La recarga fue reenviada y procesada correctamente.',
+                        'order_id' => $orderId,
+                        'estado' => 'enviado',
+                        'provider_flow' => 'completed',
+                        'provider_reference' => $providerReference,
+                        'provider_message' => $providerMessage,
+                    ]);
+                }
+
+                if ($resolvedStatus === 'cancelado') {
+                    json_response([
+                        'ok' => true,
+                        'message' => 'El proveedor rechazo la recarga reenviada. El pedido sigue para revision manual.',
+                        'order_id' => $orderId,
+                        'estado' => 'cancelado',
+                        'provider_flow' => 'cancelled',
+                        'provider_reference' => $providerReference,
+                        'provider_message' => $providerMessage,
+                    ]);
+                }
+            }
+
+            json_response([
+                'ok' => true,
+                'message' => $trackingFollowUp
+                    ? 'La recarga fue reenviada y quedo en seguimiento automatico del proveedor.'
+                    : 'La recarga fue reenviada y aceptada por la API. Quedo en proceso para seguimiento.',
+                'order_id' => $orderId,
+                'estado' => 'pagado',
+                'provider_flow' => $trackingFollowUp ? 'tracking' : 'accepted',
+                'provider_reference' => $providerReference,
+                'provider_status' => $trackedState,
+                'provider_message' => $providerMessage,
+            ], 200, static function () use ($mysqli, $updatedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage): void {
+                ensure_provider_webhook_registration();
+                notify_catalog_purchase_pending($mysqli, $updatedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage);
+                continue_provider_follow_up_in_background($mysqli, (int) ($updatedOrder['id'] ?? 0), 8, 8);
+            });
+        }
+
+        $providerHistoryJson = append_provider_history(
+            $order['recargas_api_historial_json'] ?? null,
+            build_provider_history_entry('admin_retry_purchase', $providerState, 'pagado', $providerMessage, $providerReference, $providerOrderId)
+        );
+        $stmt = $mysqli->prepare("UPDATE pedidos SET ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_historial_json = ? WHERE id = ? AND estado = 'pagado'");
+        if (!$stmt) {
+            json_error('No se pudo guardar el intento de recarga.', 500);
+        }
+        $stmt->bind_param('ssssi', $providerReference, $providerMessage, $providerPayload, $providerHistoryJson, $orderId);
+        if (!$stmt->execute()) {
+            $stmt->close();
+            json_error('No se pudo guardar el error del proveedor.', 500);
+        }
+        $stmt->close();
+
+        json_error('La recarga no pudo completarse automaticamente: ' . $providerMessage, 409);
+    }
+
+    if (game_uses_free_fire_api($mysqli, $gameId)) {
+        $monto = sanitize_str((string) ($order['monto_ff'] ?? ''), 20) ?? '';
+        $numero = sanitize_str((string) ($order['user_identifier'] ?? ''), 150) ?? '';
+        if ($monto === '') {
+            json_error('Este pedido no tiene monto configurado para la recarga de Free Fire.', 409);
+        }
+
+        try {
+            $providerResult = execute_free_fire_recharge(free_fire_api_config(), $monto, $numero);
+        } catch (Throwable $e) {
+            $providerResult = [
+                'success' => false,
+                'message' => $e->getMessage(),
+                'reference' => '',
+                'payload' => ['exception' => $e->getMessage()],
+            ];
+        }
+
+        $mysqli = ensure_mysqli_connection($mysqli);
+        $providerReference = (string) ($providerResult['reference'] ?? '');
+        $providerMessage = (string) ($providerResult['message'] ?? 'No se recibio mensaje de la API de Free Fire.');
+        $providerPayload = json_encode($providerResult['payload'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (!is_string($providerPayload)) {
+            $providerPayload = '{}';
+        }
+        $providerHistoryJson = append_provider_history(
+            $order['recargas_api_historial_json'] ?? null,
+            build_provider_history_entry('admin_retry_legacy_free_fire', '', !empty($providerResult['success']) ? 'enviado' : 'pagado', $providerMessage, $providerReference)
+        );
+
+        if (!empty($providerResult['success'])) {
+            $sentStatus = 'enviado';
+            $stmt = $mysqli->prepare("UPDATE pedidos SET ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pagado'");
+            if (!$stmt) {
+                json_error('No se pudo actualizar el pedido tras reenviar la recarga.', 500);
+            }
+            $stmt->bind_param('sssssi', $providerReference, $providerMessage, $providerPayload, $providerHistoryJson, $sentStatus, $orderId);
+            if (!$stmt->execute()) {
+                $stmt->close();
+                json_error('No se pudo guardar el resultado de la recarga.', 500);
+            }
+            $stmt->close();
+
+            $updatedOrder = fetch_order_by_id($mysqli, $orderId) ?: $order;
+            json_response([
+                'ok' => true,
+                'message' => 'La recarga de Free Fire fue enviada correctamente.',
+                'order_id' => $orderId,
+                'estado' => 'enviado',
+                'provider_flow' => 'completed',
+                'provider_reference' => $providerReference,
+                'provider_message' => $providerMessage,
+            ], 200, static function () use ($mysqli, $updatedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage): void {
+                notify_free_fire_recharge_success($mysqli, $updatedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage);
+            });
+        }
+
+        $stmt = $mysqli->prepare("UPDATE pedidos SET ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_historial_json = ? WHERE id = ? AND estado = 'pagado'");
+        if (!$stmt) {
+            json_error('No se pudo registrar el intento de recarga.', 500);
+        }
+        $stmt->bind_param('ssssi', $providerReference, $providerMessage, $providerPayload, $providerHistoryJson, $orderId);
+        if (!$stmt->execute()) {
+            $stmt->close();
+            json_error('No se pudo guardar el error de la recarga.', 500);
+        }
+        $stmt->close();
+
+        json_error('La recarga de Free Fire no pudo completarse automaticamente: ' . $providerMessage, 409);
+    }
+
+    json_error('Este pedido no tiene una recarga automatica configurable para reintentar.', 409);
+}
+
 if ($action === 'provider_recent_orders') {
     $adminRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
     if (!isset($_SESSION['auth_user']) || !in_array($adminRole, ['admin', 'empleado'], true)) {

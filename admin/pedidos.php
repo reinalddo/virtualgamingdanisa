@@ -136,6 +136,22 @@ function order_provider_history_lines(array $order, int $limit = 3): array {
   return $lines;
 }
 
+function order_can_retry_recharge(array $order): bool {
+  if (($order['estado'] ?? '') !== 'pagado') {
+    return false;
+  }
+
+  $providerOrderId = trim((string) ($order['recargas_api_pedido_id'] ?? ''));
+  if ($providerOrderId !== '') {
+    return false;
+  }
+
+  $packageApiId = (int) ($order['paquete_api'] ?? 0);
+  $legacyMonto = trim((string) ($order['monto_ff'] ?? ''));
+
+  return $packageApiId > 0 || $legacyMonto !== '';
+}
+
 function order_normalize_date_query($value): string {
   $date = trim((string) $value);
   return preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 ? $date : '';
@@ -417,6 +433,9 @@ if ($initialTab === '') {
                           <option value="<?= $opt ?>"><?= htmlspecialchars(order_status_label($opt)) ?></option>
                         <?php endforeach; ?>
                       </select>
+                      <?php if (order_can_retry_recharge($order)): ?>
+                        <button type="button" class="btn btn-outline-info btn-sm mt-2 js-retry-recharge" data-order-id="<?= (int) $order['id'] ?>">Enviar recarga</button>
+                      <?php endif; ?>
                       <?php if (($order['estado'] ?? '') !== 'enviado' && !empty($order['recargas_api_pedido_id'])): ?>
                         <button type="button" class="btn btn-outline-warning btn-sm mt-2 js-sync-provider" data-order-id="<?= (int) $order['id'] ?>">Sincronizar API</button>
                       <?php endif; ?>
@@ -478,6 +497,9 @@ if ($initialTab === '') {
                     ><?= htmlspecialchars(order_status_label($opt)) ?></button>
                   <?php endforeach; ?>
                 </div>
+                <?php if (order_can_retry_recharge($order)): ?>
+                  <button type="button" class="btn btn-outline-info btn-sm mt-3 js-retry-recharge" data-order-id="<?= (int) $order['id'] ?>">Enviar recarga</button>
+                <?php endif; ?>
                 <?php if (($order['estado'] ?? '') !== 'enviado' && !empty($order['recargas_api_pedido_id'])): ?>
                   <button type="button" class="btn btn-outline-warning btn-sm mt-3 js-sync-provider" data-order-id="<?= (int) $order['id'] ?>">Sincronizar API</button>
                 <?php endif; ?>
@@ -854,6 +876,48 @@ if ($initialTab === '') {
           window.location.reload();
         } catch (err) {
           alert(err.message || 'No se pudo sincronizar el pedido con la API.');
+        } finally {
+          button.disabled = false;
+          setAdminLoadingVisible(false);
+        }
+      });
+    });
+
+    document.querySelectorAll('.js-retry-recharge').forEach(button => {
+      button.addEventListener('click', async () => {
+        const orderId = button.dataset.orderId;
+        if (!orderId) {
+          return;
+        }
+
+        const confirmed = window.confirm('Se enviara nuevamente la recarga para este pedido verificado. Usa esta accion solo si la recarga anterior no se proceso realmente.');
+        if (!confirmed) {
+          return;
+        }
+
+        button.disabled = true;
+        setAdminLoadingVisible(true);
+        try {
+          const fd = new FormData();
+          fd.append('action', 'admin_retry_recharge');
+          fd.append('order_id', orderId);
+          const res = await fetch('/api/pedidos.php', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            throw new Error((data && data.message) ? data.message : 'No se pudo enviar nuevamente la recarga.');
+          }
+
+          const notes = [data.message || 'Recarga reenviada correctamente.'];
+          if (data.provider_status) {
+            notes.push(`Estado proveedor: ${data.provider_status}`);
+          }
+          if (data.provider_message) {
+            notes.push(`Detalle API: ${data.provider_message}`);
+          }
+          alert(notes.join('\n'));
+          window.location.reload();
+        } catch (err) {
+          alert(err.message || 'No se pudo enviar nuevamente la recarga.');
         } finally {
           button.disabled = false;
           setAdminLoadingVisible(false);
