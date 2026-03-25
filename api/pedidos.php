@@ -14,6 +14,46 @@ require_once __DIR__ . '/../includes/influencer_coupons.php';
 require_once __DIR__ . '/../includes/payment_methods.php';
 require_once __DIR__ . '/../includes/store_config.php';
 require_once __DIR__ . '/../includes/recargas_api.php';
+
+if (!function_exists('create_app_mysqli_connection')) {
+    function create_app_mysqli_connection(): mysqli {
+        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+        $host = defined('APP_DB_HOST') ? APP_DB_HOST : 'localhost';
+        $user = defined('APP_DB_USER') ? APP_DB_USER : 'root';
+        $pass = defined('APP_DB_PASS') ? APP_DB_PASS : '';
+        $name = defined('APP_DB_NAME') ? APP_DB_NAME : 'virtualgaming';
+
+        $connection = new mysqli($host, $user, $pass, $name);
+        $connection->set_charset('utf8mb4');
+        $connection->query("SET time_zone = '-04:00'");
+
+        return $connection;
+    }
+}
+
+if (!function_exists('ensure_mysqli_connection')) {
+    function ensure_mysqli_connection(?mysqli $connection = null): mysqli {
+        if ($connection instanceof mysqli) {
+            try {
+                $connection->query('SELECT 1');
+                return $connection;
+            } catch (Throwable $e) {
+                error_log('TVG MySQL reconnect triggered: ' . $e->getMessage());
+                try {
+                    $connection->close();
+                } catch (Throwable $closeError) {
+                }
+            }
+        }
+
+        $newConnection = create_app_mysqli_connection();
+        $GLOBALS['mysqli'] = $newConnection;
+
+        return $newConnection;
+    }
+}
+
 currency_ensure_schema();
 payment_methods_ensure_table();
 
