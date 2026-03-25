@@ -205,6 +205,18 @@ function table_exists(mysqli $mysqli, string $tableName): bool {
     return $res && $res->num_rows > 0;
 }
 
+function sync_coupon_usage_counts_safe(mysqli $mysqli): void {
+    if (!coupon_table_exists($mysqli)) {
+        return;
+    }
+
+    try {
+        sync_coupon_usage_counts_mysqli($mysqli);
+    } catch (Throwable $e) {
+        error_log('TVG coupon usage sync skipped: ' . $e->getMessage());
+    }
+}
+
 function load_mail_settings(mysqli $mysqli): array {
     $settings = [
         'correo_corporativo' => '',
@@ -2973,7 +2985,7 @@ ensure_juegos_categoria_api_column($mysqli);
 ensure_juego_paquetes_monto_ff_column($mysqli);
 ensure_juego_paquetes_paquete_api_column($mysqli);
 influencer_coupon_ensure_sales_table_mysqli($mysqli);
-sync_coupon_usage_counts_mysqli($mysqli);
+sync_coupon_usage_counts_safe($mysqli);
 
 if ($action === 'create') {
     $game_id = isset($_POST['game_id']) ? intval($_POST['game_id']) : null;
@@ -3123,7 +3135,7 @@ if ($action === 'create') {
     }
     $order_id = $mysqli->insert_id;
     $stmt->close();
-    sync_coupon_usage_counts_mysqli($mysqli);
+    sync_coupon_usage_counts_safe($mysqli);
     $storedOrder = fetch_order_by_id($mysqli, $order_id);
     if ($storedOrder === null) {
         json_error('No se pudo recuperar el pedido recién creado.', 500);
