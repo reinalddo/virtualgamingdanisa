@@ -1093,6 +1093,16 @@ include __DIR__ . "/includes/header.php";
     }
   }
 
+  function scrollPaymentSubmitIntoView() {
+    if (!paymentSubmitButton) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      paymentSubmitButton.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }, 120);
+  }
+
   function showPaymentStatusModal(title, message, type) {
     if (paymentStatusModalTitle) {
       paymentStatusModalTitle.textContent = title || 'Estado de la operación';
@@ -1292,7 +1302,7 @@ include __DIR__ . "/includes/header.php";
     paymentStatusModalAccept.addEventListener('click', function() {
       clearPaymentStatusPolling();
       setOverlayVisible(paymentStatusModal, false);
-      scrollPaymentModalToTop();
+      scrollPaymentSubmitIntoView();
     });
   }
 
