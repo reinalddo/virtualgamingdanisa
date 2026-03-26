@@ -250,20 +250,20 @@ function admin_http_get_json(string $url, int $timeout = 20, bool $verifySsl = t
 }
 
 function admin_fetch_bank_movements_from_api(array $config): array {
-    $baseUrl = trim((string) ($config['ff_bank_api_base_url'] ?? 'https://pagonorte.net'));
+    $baseUrl = store_config_normalize_bank_api_base_url((string) ($config['ff_bank_api_base_url'] ?? 'https://pagonorte.net'));
     $position = trim((string) ($config['ff_bank_posicion'] ?? ''));
     $token = trim((string) ($config['ff_bank_token'] ?? ''));
     $password = trim((string) ($config['ff_bank_clave'] ?? ''));
-
-    if ($baseUrl === '') {
-        $baseUrl = 'https://pagonorte.net';
-    }
 
     if ($position === '' || $token === '' || $password === '') {
         throw new RuntimeException('La conexión automática para pagos en Bs/VES no está configurada completamente.');
     }
 
-    $url = rtrim($baseUrl, "/ \t\n\r\0\x0B") . '/recargas/movimientos.jsp?' . http_build_query([
+    if ($baseUrl === '') {
+        throw new RuntimeException('El enlace base de la API bancaria no es válido.');
+    }
+
+    $url = store_config_build_bank_movements_url($baseUrl, [
         'posicion' => $position,
         'token' => $token,
         'password' => $password,
@@ -582,6 +582,7 @@ switch ($seccion) {
 
                 try {
                     $bankConfig = [
+                        'ff_bank_api_base_url' => store_config_get('ff_bank_api_base_url', 'https://pagonorte.net'),
                         'ff_bank_posicion' => store_config_get('ff_bank_posicion', '0'),
                         'ff_bank_token' => store_config_get('ff_bank_token', ''),
                         'ff_bank_clave' => store_config_get('ff_bank_clave', ''),
@@ -843,16 +844,12 @@ switch ($seccion) {
             }
 
             if ($activeTab === 'api-banco') {
-                $ffBankApiBaseUrl = trim((string) ($_POST['ff_bank_api_base_url'] ?? 'https://pagonorte.net'));
+                $ffBankApiBaseUrl = store_config_normalize_bank_api_base_url((string) ($_POST['ff_bank_api_base_url'] ?? 'https://pagonorte.net'));
                 $ffBankPosicion = (string) intval($_POST['ff_bank_posicion'] ?? 0);
                 $ffBankToken = trim((string) ($_POST['ff_bank_token'] ?? ''));
                 $ffBankClave = trim((string) ($_POST['ff_bank_clave'] ?? ''));
 
-                if ($ffBankApiBaseUrl === '') {
-                    $ffBankApiBaseUrl = 'https://pagonorte.net';
-                }
-
-                if (filter_var($ffBankApiBaseUrl, FILTER_VALIDATE_URL) === false) {
+                if (!store_config_is_valid_bank_api_base_url((string) ($_POST['ff_bank_api_base_url'] ?? 'https://pagonorte.net'))) {
                     admin_set_flash('error', 'El enlace base de la API del banco debe ser una URL válida.');
                     define('ADMIN_CONFIG_POST_HANDLED', true);
                     admin_redirect('configuracion', ['tab' => 'api-banco']);

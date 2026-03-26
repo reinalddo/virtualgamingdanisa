@@ -2010,20 +2010,20 @@ function http_get_json(string $url, int $timeout = 20, bool $verifySsl = true): 
 }
 
 function fetch_bank_movements(array $config): array {
-    $baseUrl = trim((string) ($config['ff_bank_api_base_url'] ?? 'https://pagonorte.net'));
+    $baseUrl = store_config_normalize_bank_api_base_url((string) ($config['ff_bank_api_base_url'] ?? 'https://pagonorte.net'));
     $position = trim((string) ($config['ff_bank_posicion'] ?? ''));
     $token = trim((string) ($config['ff_bank_token'] ?? ''));
     $password = trim((string) ($config['ff_bank_clave'] ?? ''));
-
-    if ($baseUrl === '') {
-        $baseUrl = 'https://pagonorte.net';
-    }
 
     if ($position === '' || $token === '' || $password === '') {
         throw new RuntimeException('La conexión automática para pagos en Bs/VES no está configurada completamente.');
     }
 
-    $url = rtrim($baseUrl, "/ \t\n\r\0\x0B") . '/recargas/movimientos.jsp?' . http_build_query([
+    if ($baseUrl === '') {
+        throw new RuntimeException('El enlace base de la API bancaria no es válido.');
+    }
+
+    $url = store_config_build_bank_movements_url($baseUrl, [
         'posicion' => $position,
         'token' => $token,
         'password' => $password,

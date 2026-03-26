@@ -611,6 +611,67 @@ function store_config_normalize_social_url(string $value): string {
     return trim($value);
 }
 
+function store_config_normalize_bank_api_base_url(string $value): string {
+    $candidate = trim($value);
+    if ($candidate === '') {
+        return 'https://pagonorte.net';
+    }
+
+    if (preg_match('~^https?://~i', $candidate) !== 1) {
+        $candidate = 'https://' . ltrim($candidate, '/');
+    }
+
+    if (filter_var($candidate, FILTER_VALIDATE_URL) === false) {
+        return '';
+    }
+
+    $scheme = strtolower((string) parse_url($candidate, PHP_URL_SCHEME));
+    if (!in_array($scheme, ['http', 'https'], true)) {
+        return '';
+    }
+
+    $host = trim((string) parse_url($candidate, PHP_URL_HOST));
+    if ($host === '') {
+        return '';
+    }
+
+    $port = parse_url($candidate, PHP_URL_PORT);
+    $path = trim((string) parse_url($candidate, PHP_URL_PATH));
+    $path = preg_replace('~/+~', '/', $path) ?? '';
+    $path = rtrim($path, '/');
+
+    if ($path === '/recargas' || $path === '/recargas/movimientos.jsp') {
+        $path = '';
+    } elseif (str_ends_with($path, '/recargas/movimientos.jsp')) {
+        $path = substr($path, 0, -strlen('/recargas/movimientos.jsp')) ?: '';
+    } elseif (str_ends_with($path, '/recargas')) {
+        $path = substr($path, 0, -strlen('/recargas')) ?: '';
+    }
+
+    $normalized = $scheme . '://' . $host;
+    if (is_int($port) && $port > 0) {
+        $normalized .= ':' . $port;
+    }
+    if ($path !== '') {
+        $normalized .= $path;
+    }
+
+    return rtrim($normalized, '/');
+}
+
+function store_config_is_valid_bank_api_base_url(string $value): bool {
+    return store_config_normalize_bank_api_base_url($value) !== '';
+}
+
+function store_config_build_bank_movements_url(string $baseUrl, array $queryParams): string {
+    $normalizedBaseUrl = store_config_normalize_bank_api_base_url($baseUrl);
+    if ($normalizedBaseUrl === '') {
+        $normalizedBaseUrl = 'https://pagonorte.net';
+    }
+
+    return $normalizedBaseUrl . '/recargas/movimientos.jsp?' . http_build_query($queryParams);
+}
+
 function store_config_extract_youtube_video_id(string $value): string {
     $candidate = trim($value);
     if ($candidate === '') {
