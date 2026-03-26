@@ -1365,17 +1365,61 @@ include __DIR__ . "/includes/header.php";
     return raw.split(/\r?\n+/).map((code) => String(code || '').trim()).filter(Boolean);
   }
 
+  async function copyTextToClipboard(value) {
+    const text = String(value || '');
+    if (text.trim() === '') {
+      return false;
+    }
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+
+    const tempInput = document.createElement('textarea');
+    tempInput.value = text;
+    tempInput.setAttribute('readonly', 'readonly');
+    tempInput.style.position = 'fixed';
+    tempInput.style.opacity = '0';
+    document.body.appendChild(tempInput);
+    tempInput.focus();
+    tempInput.select();
+
+    let copied = false;
+    try {
+      copied = document.execCommand('copy');
+    } finally {
+      tempInput.remove();
+    }
+
+    return copied;
+  }
+
   function renderDeliveredCodesCard(container, codes) {
     if (!container || !Array.isArray(codes) || !codes.length) {
       return;
     }
 
+    const copyLabel = codes.length > 1 ? 'Copiar codigos' : 'Copiar codigo';
     container.className = `payment-reasons-card mb-3${container.id === 'payment-status-modal-reasons' ? ' text-start' : ''}`;
     container.innerHTML = `
       <div class="payment-reasons-title">${escapePaymentHtml(codes.length > 1 ? 'Codigos entregados' : 'Codigo entregado')}</div>
       <div class="payment-reasons-summary">Guarda esta informacion exactamente como aparece.</div>
       <ul>${codes.map((code) => `<li>${escapePaymentHtml(code)}</li>`).join('')}</ul>
+      <button type="button" class="btn btn-info fw-bold w-100 mt-2 payment-copy-code-btn">${escapePaymentHtml(copyLabel)}</button>
     `;
+
+    const copyButton = container.querySelector('.payment-copy-code-btn');
+    if (copyButton) {
+      copyButton.addEventListener('click', async () => {
+        try {
+          const copied = await copyTextToClipboard(codes.join('\n'));
+          showToast(copied ? 'Codigo copiado.' : 'No se pudo copiar el codigo.', copied ? 'success' : 'error');
+        } catch (error) {
+          showToast('No se pudo copiar el codigo.', 'error');
+        }
+      });
+    }
   }
 
   function renderDeliveredCodes(data) {
