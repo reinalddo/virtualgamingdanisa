@@ -517,6 +517,13 @@ $googleCallbackUrl = google_oauth_callback_url();
               <input type="hidden" name="config_section" value="api-banco">
               <div class="config-section-note mb-4">Configura aquí los datos de conexión al banco usados para verificar automáticamente los pagos.</div>
 
+              <?php $bankAvailableDays = trim((string) ($cfg['ff_bank_dias_disponibles'] ?? '')); ?>
+              <?php if ($bankAvailableDays !== ''): ?>
+                <div class="alert alert-info rounded-4 mb-4" role="status">
+                  La API bancaria reporta actualmente <strong><?= htmlspecialchars($bankAvailableDays, ENT_QUOTES, 'UTF-8') ?> días disponibles</strong> en la consulta de movimientos. Este dato se actualiza cuando se verifica un pago o se sincronizan movimientos manualmente.
+                </div>
+              <?php endif; ?>
+
               <div class="gallery-table-wrap mb-2">
                 <h3 class="h5 fw-bold text-info mb-3">Datos para conexión al banco</h3>
                 <div class="row g-3">

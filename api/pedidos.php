@@ -2029,6 +2029,9 @@ function fetch_bank_movements(array $config): array {
     ]);
 
     $data = http_get_json($url, 20, false);
+    $availableDays = isset($data['dias_disponibles']) ? max(0, (int) $data['dias_disponibles']) : null;
+    store_config_upsert('ff_bank_dias_disponibles', $availableDays !== null ? (string) $availableDays : '');
+
     $movements = $data['movimientos'] ?? null;
     if (!is_array($movements)) {
         throw new RuntimeException('La API bancaria no devolvió la lista de movimientos esperada.');
