@@ -367,6 +367,8 @@ function recargas_api_canonical_field_name(string $rawName, string $rawDescripti
     if (
         str_contains($description, 'user id')
         || str_contains($description, 'player id')
+        || str_contains($description, 'id pengguna')
+        || str_contains($description, 'pengguna id')
         || str_contains($description, 'id del jugador')
         || str_contains($description, 'id de jugador')
         || str_contains($description, 'id de usuario')
