@@ -1165,7 +1165,7 @@ include __DIR__ . "/includes/header.php";
       const nextState = String((data && data.estado) || '').toLowerCase();
       if (nextState === 'enviado') {
         clearPaymentStatusPolling();
-        clearPaymentSupportUi();
+        renderDeliveredCodes(data);
         setPaymentAlert('Pago verificado y recarga procesada correctamente.', 'success');
         setPaymentFormDisabled(true);
         clearPaymentTimer();
@@ -1354,6 +1354,41 @@ include __DIR__ . "/includes/header.php";
     }
 
     return ['La confirmación automática del proveedor quedó pendiente y será resuelta por webhook o por sincronización posterior.'];
+  }
+
+  function extractProviderCodes(data) {
+    const raw = String((data && data.provider_code) || '').trim();
+    if (raw === '') {
+      return [];
+    }
+
+    return raw.split(/\r?\n+/).map((code) => String(code || '').trim()).filter(Boolean);
+  }
+
+  function renderDeliveredCodesCard(container, codes) {
+    if (!container || !Array.isArray(codes) || !codes.length) {
+      return;
+    }
+
+    container.className = `payment-reasons-card mb-3${container.id === 'payment-status-modal-reasons' ? ' text-start' : ''}`;
+    container.innerHTML = `
+      <div class="payment-reasons-title">${escapePaymentHtml(codes.length > 1 ? 'Codigos entregados' : 'Codigo entregado')}</div>
+      <div class="payment-reasons-summary">Guarda esta informacion exactamente como aparece.</div>
+      <ul>${codes.map((code) => `<li>${escapePaymentHtml(code)}</li>`).join('')}</ul>
+    `;
+  }
+
+  function renderDeliveredCodes(data) {
+    clearPaymentSupportUi();
+    const codes = extractProviderCodes(data);
+    if (!codes.length) {
+      return false;
+    }
+
+    renderDeliveredCodesCard(paymentModalReasons, codes);
+    renderDeliveredCodesCard(paymentStatusModalReasons, codes);
+    scrollPaymentModalToTop();
+    return true;
   }
 
   function renderSupportCard(container, title, summary, steps, reasons) {
@@ -1853,7 +1888,7 @@ include __DIR__ . "/includes/header.php";
                     if (nextState === 'enviado') {
                       const successMessage = data.message || 'La recarga fue procesada correctamente.';
                       setPaymentAlert(successMessage, 'success');
-                      clearPaymentSupportUi();
+                      renderDeliveredCodes(data);
                       setPaymentFormDisabled(true);
                       clearPaymentTimer();
                       setCancelOrderButtonMode('close');

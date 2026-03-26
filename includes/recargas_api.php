@@ -622,7 +622,27 @@ function recargas_api_purchase_is_completed(array $response): bool {
         }
     }
 
+    foreach (['codigos', 'codigos_entregados'] as $key) {
+        if (array_key_exists($key, $response) && recargas_api_response_has_delivered_codes($response[$key])) {
+            return true;
+        }
+    }
+
     return false;
+}
+
+function recargas_api_response_has_delivered_codes($value): bool {
+    if (is_array($value)) {
+        foreach ($value as $item) {
+            if (recargas_api_response_has_delivered_codes($item)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    return trim((string) $value) !== '';
 }
 
 function recargas_api_product_label(array $product): string {

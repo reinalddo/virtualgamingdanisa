@@ -1405,6 +1405,90 @@ function recargas_api_extract_provider_order_id(array $response): string {
     return sanitize_str((string) ($response['id'] ?? $response['pedido_id'] ?? $response['referencia'] ?? ''), 120) ?? '';
 }
 
+function provider_is_sequential_list(array $value): bool {
+    $expectedIndex = 0;
+    foreach (array_keys($value) as $key) {
+        if ($key !== $expectedIndex) {
+            return false;
+        }
+
+        $expectedIndex++;
+    }
+
+    return true;
+}
+
+function provider_stringify_delivered_code_value($value): array {
+    if (is_array($value)) {
+        $codes = [];
+        foreach (['codigo', 'pin', 'serial', 'voucher', 'code', 'clave'] as $preferredKey) {
+            if (!array_key_exists($preferredKey, $value)) {
+                continue;
+            }
+
+            foreach (provider_stringify_delivered_code_value($value[$preferredKey]) as $candidate) {
+                $codes[$candidate] = true;
+            }
+        }
+
+        if (!empty($codes)) {
+            return array_keys($codes);
+        }
+
+        if (!provider_is_sequential_list($value)) {
+            $parts = [];
+            foreach ($value as $key => $item) {
+                if (is_array($item)) {
+                    continue;
+                }
+
+                $normalizedItem = trim((string) $item);
+                if ($normalizedItem === '') {
+                    continue;
+                }
+
+                $label = trim((string) $key);
+                $parts[] = $label !== '' ? $label . ': ' . $normalizedItem : $normalizedItem;
+            }
+
+            if (!empty($parts)) {
+                return [implode(' | ', $parts)];
+            }
+        }
+
+        foreach ($value as $item) {
+            foreach (provider_stringify_delivered_code_value($item) as $candidate) {
+                $codes[$candidate] = true;
+            }
+        }
+
+        return array_keys($codes);
+    }
+
+    $normalized = trim((string) $value);
+    return $normalized !== '' ? [$normalized] : [];
+}
+
+function provider_extract_delivered_codes(array $detail): array {
+    $codes = [];
+
+    foreach (['codigos', 'codigos_entregados', 'codigo_entregado', 'codigo', 'pin', 'serial', 'voucher'] as $key) {
+        if (!array_key_exists($key, $detail)) {
+            continue;
+        }
+
+        foreach (provider_stringify_delivered_code_value($detail[$key]) as $candidate) {
+            $codes[$candidate] = true;
+        }
+    }
+
+    return array_keys($codes);
+}
+
+function provider_delivered_code_text(array $detail): string {
+    return implode("\n", provider_extract_delivered_codes($detail));
+}
+
 function provider_status_to_local_status(string $providerStatus): ?string {
     $normalized = strtolower(trim($providerStatus));
 
@@ -1435,11 +1519,21 @@ function provider_order_display_reference(array $detail, string $fallback = ''):
 
 function provider_order_status_message(array $detail, string $fallback = ''): string {
     $parts = [];
-    foreach (['razon', 'codigo_entregado', 'nombre_jugador'] as $key) {
+    foreach (['razon', 'nombre_jugador'] as $key) {
         $value = trim((string) ($detail[$key] ?? ''));
         if ($value !== '') {
             $parts[] = $value;
         }
+    }
+
+    $deliveredCodes = provider_extract_delivered_codes($detail);
+    if (!empty($deliveredCodes)) {
+        $parts[] = 'Codigos entregados: ' . implode(' / ', $deliveredCodes);
+    }
+
+    $deliveredCount = (int) ($detail['cantidad_entregada'] ?? 0);
+    if ($deliveredCount > 1) {
+        $parts[] = 'Cantidad entregada: ' . $deliveredCount;
     }
 
     if (!empty($parts)) {
@@ -1546,6 +1640,10 @@ function order_provider_flow_from_row(array $order): string {
     }
     if ($localStatus === 'cancelado') {
         return 'cancelled';
+    }
+
+    if (trim((string) ($order['recargas_api_codigo_entregado'] ?? '')) !== '') {
+        return 'completed';
     }
 
     $providerStatus = strtolower(trim((string) ($order['recargas_api_estado'] ?? '')));
@@ -2766,7 +2864,7 @@ function sync_local_order_with_provider_detail(mysqli $mysqli, array $order, arr
     $providerOrderId = sanitize_str((string) ($providerDetail['id'] ?? $order['recargas_api_pedido_id'] ?? ''), 120) ?? '';
     $providerReference = provider_order_display_reference($providerDetail, (string) ($order['ff_api_referencia'] ?? ''));
     $providerMessage = provider_order_status_message($providerDetail, (string) ($order['ff_api_mensaje'] ?? ''));
-    $providerCode = trim((string) ($providerDetail['codigo_entregado'] ?? ''));
+    $providerCode = provider_delivered_code_text($providerDetail);
     $refundAmount = isset($providerDetail['reembolso']) && is_numeric($providerDetail['reembolso'])
         ? round((float) $providerDetail['reembolso'], 2)
         : null;
@@ -3421,11 +3519,13 @@ if ($action === 'submit_payment') {
 
             $mysqli = ensure_mysqli_connection($mysqli);
 
+            $providerPayloadData = (array) ($freeFireResult['payload'] ?? []);
             $providerReference = (string) ($freeFireResult['reference'] ?? '');
-            $providerMessage = (string) ($freeFireResult['message'] ?? 'No se recibió mensaje del proveedor.');
-            $providerPayload = json_encode($freeFireResult['payload'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            $providerOrderId = recargas_api_extract_provider_order_id((array) ($freeFireResult['payload'] ?? []));
-            $providerState = strtolower(trim((string) (($freeFireResult['payload']['estado'] ?? ''))));
+            $providerMessage = provider_order_status_message($providerPayloadData, (string) ($freeFireResult['message'] ?? 'No se recibió mensaje del proveedor.'));
+            $providerPayload = json_encode($providerPayloadData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $providerOrderId = recargas_api_extract_provider_order_id($providerPayloadData);
+            $providerState = strtolower(trim((string) (($providerPayloadData['estado'] ?? ''))));
+            $providerCode = provider_delivered_code_text($providerPayloadData);
 
             if (!empty($freeFireResult['success'])) {
                 $verifiedStatus = 'enviado';
@@ -3437,14 +3537,15 @@ if ($action === 'submit_payment') {
                         $verifiedStatus,
                         $providerMessage,
                         $providerReference,
-                        $providerOrderId
+                        $providerOrderId,
+                        $providerCode
                     )
                 );
-                $verifyStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
+                $verifyStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_codigo_entregado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
                 if (!$verifyStmt) {
                     json_error('No se pudo confirmar la recarga automáticamente.', 500);
                 }
-                $verifyStmt->bind_param('sssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $providerHistoryJson, $verifiedStatus, $orderId);
+                $verifyStmt->bind_param('ssssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $providerCode, $providerHistoryJson, $verifiedStatus, $orderId);
                 if (!$verifyStmt->execute()) {
                     $verifyStmt->close();
                     json_error('No se pudo actualizar el pedido tras procesar la recarga.', 500);
@@ -3461,6 +3562,7 @@ if ($action === 'submit_payment') {
                     'provider_flow' => 'completed',
                     'provider_reference' => $providerReference,
                     'provider_message' => $providerMessage,
+                    'provider_code' => $providerCode,
                 ], 200, static function () use ($mysqli, $verifiedOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage): void {
                     ensure_provider_webhook_registration();
                     register_influencer_coupon_sale($mysqli, $verifiedOrder);
@@ -3484,14 +3586,15 @@ if ($action === 'submit_payment') {
                         $paidStatus,
                         $providerMessage,
                         $providerReference,
-                        $providerOrderId
+                        $providerOrderId,
+                        $providerCode
                     )
                 );
-                $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
+                $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_codigo_entregado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
                 if (!$paidStmt) {
                     json_error('No se pudo actualizar el pedido tras validar el pago.', 500);
                 }
-                $paidStmt->bind_param('sssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerTrackedState, $providerHistoryJson, $paidStatus, $orderId);
+                $paidStmt->bind_param('ssssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerTrackedState, $providerCode, $providerHistoryJson, $paidStatus, $orderId);
                 if (!$paidStmt->execute()) {
                     $paidStmt->close();
                     json_error('No se pudo marcar el pedido como pagado.', 500);
@@ -3527,14 +3630,15 @@ if ($action === 'submit_payment') {
                         $paidStatus,
                         $providerMessage,
                         $providerReference,
-                        $providerOrderId
+                        $providerOrderId,
+                        $providerCode
                     )
                 );
-                $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
+                $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_pedido_id = ?, recargas_api_estado = ?, recargas_api_codigo_entregado = ?, recargas_api_ultimo_check = NOW(), recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
                 if (!$paidStmt) {
                     json_error('No se pudo actualizar el pedido tras validar el pago.', 500);
                 }
-                $paidStmt->bind_param('sssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $providerHistoryJson, $paidStatus, $orderId);
+                $paidStmt->bind_param('ssssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerOrderId, $providerState, $providerCode, $providerHistoryJson, $paidStatus, $orderId);
                 if (!$paidStmt->execute()) {
                     $paidStmt->close();
                     json_error('No se pudo marcar el pedido como pagado.', 500);
@@ -3550,6 +3654,7 @@ if ($action === 'submit_payment') {
                     $paidOrder = is_array($autoSyncResult['order'] ?? null) ? $autoSyncResult['order'] : $paidOrder;
                     $providerMessage = trim((string) ($autoSyncResult['provider_message'] ?? $providerMessage));
                     $providerReference = trim((string) ($autoSyncResult['provider_reference'] ?? $providerReference));
+                    $providerCode = trim((string) ($autoSyncResult['provider_code'] ?? $providerCode));
                     $resolvedStatus = trim((string) ($autoSyncResult['local_status'] ?? ''));
 
                     if ($resolvedStatus === 'enviado') {
@@ -3562,6 +3667,7 @@ if ($action === 'submit_payment') {
                             'provider_flow' => 'completed',
                             'provider_reference' => $providerReference,
                             'provider_message' => $providerMessage,
+                            'provider_code' => $providerCode,
                         ]);
                     }
 
@@ -3590,6 +3696,7 @@ if ($action === 'submit_payment') {
                     'reasons' => [$providerMessage],
                     'provider_reference' => $providerReference,
                     'provider_message' => $providerMessage,
+                    'provider_code' => $providerCode,
                 ], 200, static function () use ($mysqli, $paidOrder, $paymentMethodName, $verifiedReference, $phone, $providerReference, $providerMessage): void {
                     ensure_provider_webhook_registration();
                     register_influencer_coupon_sale($mysqli, $paidOrder);
@@ -3607,14 +3714,15 @@ if ($action === 'submit_payment') {
                     $paidStatus,
                     $providerMessage,
                     $providerReference,
-                    $providerOrderId
+                    $providerOrderId,
+                    $providerCode
                 )
             );
-            $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
+            $paidStmt = $mysqli->prepare("UPDATE pedidos SET numero_referencia = ?, telefono_contacto = ?, ff_api_referencia = ?, ff_api_mensaje = ?, ff_api_payload = ?, recargas_api_codigo_entregado = ?, recargas_api_historial_json = ?, estado = ? WHERE id = ? AND estado = 'pendiente'");
             if (!$paidStmt) {
                 json_error('No se pudo actualizar el pedido tras validar el pago.', 500);
             }
-            $paidStmt->bind_param('sssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerHistoryJson, $paidStatus, $orderId);
+            $paidStmt->bind_param('ssssssssi', $verifiedReference, $phone, $providerReference, $providerMessage, $providerPayload, $providerCode, $providerHistoryJson, $paidStatus, $orderId);
             if (!$paidStmt->execute()) {
                 $paidStmt->close();
                 json_error('No se pudo marcar el pedido como pagado.', 500);
