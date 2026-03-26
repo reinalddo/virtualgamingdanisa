@@ -3328,7 +3328,7 @@ if ($action === 'submit_payment') {
         try {
             $bankMovements = fetch_and_sync_bank_movements($mysqli, $bankConfig);
         } catch (Throwable $e) {
-            json_error('No pudimos validar el pago por respuesta del servidor bancario. Espera un momento y vuelve a intentarlo, o contacta al administrador si ya te debitaron el pago.', 502);
+            json_error('Su Pago está en proceso, Espere 1 min y vuelva a intentar', 502);
         }
 
         if (!$usesBankValidation) {
@@ -3368,7 +3368,7 @@ if ($action === 'submit_payment') {
                 $bankMovements = $retryResult['movements'];
                 error_log('TVG bank validation attempts for order #' . $orderId . ': ' . (int) ($retryResult['attempts'] ?? 1));
             } catch (Throwable $e) {
-                json_error('No pudimos validar el pago por respuesta del servidor bancario. Espera un momento y vuelve a intentarlo, o contacta al administrador si ya te debitaron el pago.', 502);
+                json_error('Su Pago está en proceso, Espere 1 min y vuelva a intentar', 502);
             }
         }
 
@@ -3642,7 +3642,7 @@ if ($action === 'submit_payment') {
         $pendingOrder = fetch_order_by_id($mysqli, $orderId) ?: $updatedOrder;
         json_response([
             'ok' => true,
-            'message' => 'No pudimos validar el pago automáticamente en este momento.',
+            'message' => 'Su Pago está en proceso, Espere 1 min y vuelva a intentar',
             'order_id' => $orderId,
             'estado' => 'pendiente',
             'verified' => false,

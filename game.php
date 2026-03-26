@@ -1351,14 +1351,18 @@ include __DIR__ . "/includes/header.php";
       return;
     }
 
+    const safeSummary = String(summary || '').trim();
+    const safeSteps = Array.isArray(steps) ? steps.filter((step) => String(step || '').trim() !== '') : [];
+    const safeReasons = Array.isArray(reasons) ? reasons.filter((reason) => String(reason || '').trim() !== '') : [];
+
     container.className = `payment-reasons-card mb-3${container.id === 'payment-status-modal-reasons' ? ' text-start' : ''}`;
     container.innerHTML = `
       <div class="payment-reasons-title">${escapePaymentHtml(title)}</div>
-      <div class="payment-reasons-summary">${escapePaymentHtml(summary)}</div>
-      <ol class="payment-reasons-steps">${steps.map((step) => `<li>${escapePaymentHtml(step)}</li>`).join('')}</ol>
-      ${reasons.length ? `
+      ${safeSummary !== '' ? `<div class="payment-reasons-summary">${escapePaymentHtml(safeSummary)}</div>` : ''}
+      ${safeSteps.length ? `<ol class="payment-reasons-steps">${safeSteps.map((step) => `<li>${escapePaymentHtml(step)}</li>`).join('')}</ol>` : ''}
+      ${safeReasons.length ? `
         <div class="payment-reasons-caption">Detalle detectado por el sistema:</div>
-        <ul>${reasons.map((reason) => `<li>${escapePaymentHtml(reason)}</li>`).join('')}</ul>
+        <ul>${safeReasons.map((reason) => `<li>${escapePaymentHtml(reason)}</li>`).join('')}</ul>
       ` : ''}
     `;
   }
@@ -1384,12 +1388,10 @@ include __DIR__ . "/includes/header.php";
     clearPaymentSupportUi();
     const failureType = String((data && data.failure_type) || 'server_or_data_mismatch');
     const reasons = extractPaymentReasons(data);
-    let title = 'No pudimos validar el pago automáticamente';
-    let summary = 'La validación no se pudo completar con la respuesta actual del servidor bancario.';
-    let steps = [
-      'Espera 1 o 2 minutos y vuelve a intentar la validación en esta misma ventana.',
-      'Si ya te debitaron el pago y sigue sin validarse, contacta al administrador por WhatsApp y envía el comprobante.'
-    ];
+    let title = 'Su Pago está en proceso, Espere 1 min y vuelva a intentar';
+    let summary = '';
+    let steps = [];
+    let displayReasons = [];
 
     if (failureType === 'reference_mismatch') {
       title = 'La referencia no coincide';
@@ -1408,21 +1410,19 @@ include __DIR__ . "/includes/header.php";
         'Si el cobro fue correcto y continúa el problema, contacta al administrador por WhatsApp con tu comprobante.'
       ];
     } else if (failureType === 'server_partial_response') {
-      title = 'El servidor respondió con datos incompletos';
-      summary = 'Detectamos coincidencias parciales, pero el banco no devolvió una validación completa en el mismo movimiento.';
-      steps = [
-        'Espera 1 o 2 minutos y vuelve a intentar la validación.',
-        'Si el problema persiste, contacta al administrador por WhatsApp y envía el comprobante para revisión manual.'
-      ];
+      title = 'Su Pago está en proceso, Espere 1 min y vuelva a intentar';
+      summary = '';
+      steps = [];
     }
 
-    if (paymentModalReasons && reasons.length) {
-      renderSupportCard(paymentModalReasons, title, summary, steps, reasons);
-      renderSupportCard(paymentStatusModalReasons, title, summary, steps, reasons);
+    if (failureType === 'server_or_data_mismatch' || failureType === 'server_partial_response') {
+      displayReasons = [];
     } else {
-      renderSupportCard(paymentModalReasons, title, summary, steps, []);
-      renderSupportCard(paymentStatusModalReasons, title, summary, steps, []);
+      displayReasons = reasons;
     }
+
+    renderSupportCard(paymentModalReasons, title, summary, steps, displayReasons);
+    renderSupportCard(paymentStatusModalReasons, title, summary, steps, displayReasons);
     renderSupportActionLinks(reference, totalText);
     scrollPaymentModalToTop();
   }
