@@ -1840,6 +1840,13 @@ require_once __DIR__ . '/includes/header.php';
 
                 echo '<div data-movements-refresh-root="1">';
 
+                $bankAvailableDays = trim((string) store_config_get('ff_bank_dias_disponibles', ''));
+                if ($bankAvailableDays !== '') {
+                    echo '<div class="alert alert-info rounded-4 mb-4" role="status" data-bank-available-days="' . htmlspecialchars($bankAvailableDays, ENT_QUOTES, 'UTF-8') . '" style="border:1px solid rgba(34,211,238,0.32); background:rgba(8,145,178,0.14); color:#cffafe;">';
+                    echo 'La API bancaria reporta actualmente <strong>' . htmlspecialchars($bankAvailableDays, ENT_QUOTES, 'UTF-8') . ' días disponibles</strong> en la consulta de movimientos.';
+                    echo '</div>';
+                }
+
                 echo '<div class="mb-4" style="background:#111827; border-radius:16px; border:1px solid rgba(0,255,247,0.24); box-shadow:0 0 18px rgba(0,255,247,0.08); padding:1rem 1.1rem;">';
                 echo '<div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">';
                 echo '<div>';
@@ -2593,15 +2600,17 @@ require_once __DIR__ . '/includes/header.php';
                     throw new Error(data.message || 'No se pudo actualizar los movimientos desde la API.');
                 }
 
+                const availableDaysSuffix = data.dias_disponibles ? ` La API reporta ${data.dias_disponibles} días disponibles.` : '';
+
                 if (data.has_new_movements) {
-                    setSyncStatus('success', 'Nuevos movimientos disponibles', data.message || 'Se registraron nuevos movimientos en la tabla.', false);
+                    setSyncStatus('success', 'Nuevos movimientos disponibles', (data.message || 'Se registraron nuevos movimientos en la tabla.') + availableDaysSuffix, false);
                     showMovementToast('Movimientos actualizados desde la API');
                     await wait(1500);
                     await refreshMovementsContent(`${window.location.pathname}${window.location.search}`, false);
                     return;
                 }
 
-                setSyncStatus('info', 'Sin movimientos nuevos', data.message || 'No hay movimientos nuevos para actualizar.', false);
+                setSyncStatus('info', 'Sin movimientos nuevos', (data.message || 'No hay movimientos nuevos para actualizar.') + availableDaysSuffix, false);
                 await wait(3000);
                 const { syncStatus } = getSyncElements();
                 if (syncStatus) {
