@@ -2010,15 +2010,20 @@ function http_get_json(string $url, int $timeout = 20, bool $verifySsl = true): 
 }
 
 function fetch_bank_movements(array $config): array {
+    $baseUrl = trim((string) ($config['ff_bank_api_base_url'] ?? 'https://pagonorte.net'));
     $position = trim((string) ($config['ff_bank_posicion'] ?? ''));
     $token = trim((string) ($config['ff_bank_token'] ?? ''));
     $password = trim((string) ($config['ff_bank_clave'] ?? ''));
+
+    if ($baseUrl === '') {
+        $baseUrl = 'https://pagonorte.net';
+    }
 
     if ($position === '' || $token === '' || $password === '') {
         throw new RuntimeException('La conexión automática para pagos en Bs/VES no está configurada completamente.');
     }
 
-    $url = 'https://pagonorte.net/recargas/movimientos.jsp?' . http_build_query([
+    $url = rtrim($baseUrl, "/ \t\n\r\0\x0B") . '/recargas/movimientos.jsp?' . http_build_query([
         'posicion' => $position,
         'token' => $token,
         'password' => $password,
@@ -3310,6 +3315,7 @@ if ($action === 'submit_payment') {
     $usesBankValidation = $orderSupportsBankApi && $methodSupportsBankApi && $currencyMatchesOrder;
 
     $bankConfig = [
+        'ff_bank_api_base_url' => store_config_get('ff_bank_api_base_url', 'https://pagonorte.net'),
         'ff_bank_posicion' => store_config_get('ff_bank_posicion', '0'),
         'ff_bank_token' => store_config_get('ff_bank_token', ''),
         'ff_bank_clave' => store_config_get('ff_bank_clave', ''),

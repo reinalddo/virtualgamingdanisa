@@ -250,15 +250,20 @@ function admin_http_get_json(string $url, int $timeout = 20, bool $verifySsl = t
 }
 
 function admin_fetch_bank_movements_from_api(array $config): array {
+    $baseUrl = trim((string) ($config['ff_bank_api_base_url'] ?? 'https://pagonorte.net'));
     $position = trim((string) ($config['ff_bank_posicion'] ?? ''));
     $token = trim((string) ($config['ff_bank_token'] ?? ''));
     $password = trim((string) ($config['ff_bank_clave'] ?? ''));
+
+    if ($baseUrl === '') {
+        $baseUrl = 'https://pagonorte.net';
+    }
 
     if ($position === '' || $token === '' || $password === '') {
         throw new RuntimeException('La conexión automática para pagos en Bs/VES no está configurada completamente.');
     }
 
-    $url = 'https://pagonorte.net/recargas/movimientos.jsp?' . http_build_query([
+    $url = rtrim($baseUrl, "/ \t\n\r\0\x0B") . '/recargas/movimientos.jsp?' . http_build_query([
         'posicion' => $position,
         'token' => $token,
         'password' => $password,
@@ -838,9 +843,20 @@ switch ($seccion) {
             }
 
             if ($activeTab === 'api-banco') {
+                $ffBankApiBaseUrl = trim((string) ($_POST['ff_bank_api_base_url'] ?? 'https://pagonorte.net'));
                 $ffBankPosicion = (string) intval($_POST['ff_bank_posicion'] ?? 0);
                 $ffBankToken = trim((string) ($_POST['ff_bank_token'] ?? ''));
                 $ffBankClave = trim((string) ($_POST['ff_bank_clave'] ?? ''));
+
+                if ($ffBankApiBaseUrl === '') {
+                    $ffBankApiBaseUrl = 'https://pagonorte.net';
+                }
+
+                if (filter_var($ffBankApiBaseUrl, FILTER_VALIDATE_URL) === false) {
+                    admin_set_flash('error', 'El enlace base de la API del banco debe ser una URL válida.');
+                    define('ADMIN_CONFIG_POST_HANDLED', true);
+                    admin_redirect('configuracion', ['tab' => 'api-banco']);
+                }
 
                 if (!in_array($ffBankPosicion, ['0', '1', '2', '3', '4', '5'], true)) {
                     admin_set_flash('error', 'La Posicion debe estar entre 0 y 5.');
@@ -854,6 +870,7 @@ switch ($seccion) {
                     admin_redirect('configuracion', ['tab' => 'api-banco']);
                 }
 
+                store_config_upsert('ff_bank_api_base_url', $ffBankApiBaseUrl);
                 store_config_upsert('ff_bank_posicion', $ffBankPosicion);
                 store_config_upsert('ff_bank_token', $ffBankToken);
                 store_config_upsert('ff_bank_clave', $ffBankClave);
@@ -2094,6 +2111,7 @@ require_once __DIR__ . '/includes/header.php';
         }
         to {
             transform: rotate(360deg);
+                        'ff_bank_api_base_url' => store_config_get('ff_bank_api_base_url', 'https://pagonorte.net'),
         }
     }
     [data-movement-row],

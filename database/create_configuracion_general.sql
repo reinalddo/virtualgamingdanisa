@@ -23,6 +23,7 @@ INSERT INTO configuracion_general (clave, valor, descripcion) VALUES
 ('whatsapp', '', 'Número o enlace de WhatsApp de la tienda'),
 ('mensaje_whatsapp', '', 'Mensaje predefinido para el botón flotante de WhatsApp'),
 ('whatsapp_channel', '', 'URL del canal de WhatsApp de la tienda'),
+('ff_bank_api_base_url', 'https://pagonorte.net', 'Enlace base de la API del banco para consultar movimientos'),
 ('ff_bank_posicion', '0', 'Posicion para la conexion al banco de Free Fire'),
 ('ff_bank_token', '', 'Token para la conexion al banco de Free Fire'),
 ('ff_bank_clave', '', 'Clave para la conexion al banco de Free Fire'),
