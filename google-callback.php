@@ -111,6 +111,11 @@ try {
         exit;
     }
 
+    if ($role === 'influencer') {
+        header('Location: /admin/cupones?tab=influencers');
+        exit;
+    }
+
     header('Location: ' . google_oauth_home_url());
     exit;
 } catch (Throwable $exception) {

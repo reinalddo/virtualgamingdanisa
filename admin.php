@@ -1,9 +1,10 @@
 <?php
 require_once __DIR__ . '/includes/app_session.php';
 app_session_start();
+require_once __DIR__ . '/includes/auth.php';
 
 function admin_allowed_roles(): array {
-    return ['admin', 'empleado'];
+    return ['admin', 'empleado', 'influencer'];
 }
 
 function admin_manageable_user_roles(): array {
@@ -16,7 +17,15 @@ function admin_manageable_user_roles(): array {
 }
 
 function admin_default_section_for_role(string $role): string {
-    return $role === 'empleado' ? 'pedidos' : 'dashboard';
+    if ($role === 'empleado') {
+        return 'pedidos';
+    }
+
+    if ($role === 'influencer') {
+        return 'cupones';
+    }
+
+    return 'dashboard';
 }
 
 function admin_user_can_access_section(string $role, string $section): bool {
@@ -28,12 +37,16 @@ function admin_user_can_access_section(string $role, string $section): bool {
         return in_array($section, ['pedidos', 'movimientos'], true);
     }
 
+    if ($role === 'influencer') {
+        return in_array($section, ['cupones'], true);
+    }
+
     return false;
 }
 
-// Verificar si el usuario puede entrar al admin
-$adminUserRole = trim((string) ($_SESSION['auth_user']['rol'] ?? ''));
-if (!isset($_SESSION['auth_user']) || !in_array($adminUserRole, admin_allowed_roles(), true)) {
+$adminUser = auth_sync_session_user();
+$adminUserRole = trim((string) ($adminUser['rol'] ?? ''));
+if (!$adminUser || !in_array($adminUserRole, admin_allowed_roles(), true)) {
     header('Location: login.php');
     exit();
 }
@@ -202,6 +215,31 @@ function admin_match_coupon_influencer_user_id(array $users, ?array $coupon): st
     }
 
     return '';
+}
+
+function admin_build_influencer_sales_identity_filter(array $user): array {
+    $clauses = [];
+    $params = [];
+
+    $email = strtolower(trim((string) ($user['email'] ?? '')));
+    if ($email !== '') {
+        $clauses[] = 'LOWER(TRIM(s.email_influencer)) = ?';
+        $params[] = $email;
+    }
+
+    $phone = trim((string) ($user['telefono'] ?? ''));
+    if ($phone !== '') {
+        $clauses[] = 'TRIM(s.telefono_influencer) = ?';
+        $params[] = $phone;
+    }
+
+    $name = trim((string) ($user['full_name'] ?? $user['nombre'] ?? ''));
+    if ($name !== '') {
+        $clauses[] = 'LOWER(TRIM(s.nombre_influencer)) = ?';
+        $params[] = function_exists('mb_strtolower') ? mb_strtolower($name, 'UTF-8') : strtolower($name);
+    }
+
+    return ['clauses' => $clauses, 'params' => $params];
 }
 
 function admin_render_users_results(array $usuarios): string {
@@ -667,7 +705,13 @@ switch ($seccion) {
         influencer_coupon_ensure_sales_table_pdo($pdo);
         ensure_influencer_payment_status_column_pdo($pdo);
 
+        $isInfluencerViewer = $adminUserRole === 'influencer';
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['actualizar_estado_pago_influencer'])) {
+            if ($isInfluencerViewer) {
+                admin_set_flash('error', 'No tienes permisos para modificar el estado de pago de comisiones.');
+                admin_redirect('cupones', ['tab' => 'influencers']);
+            }
             $pedidoId = intval($_POST['pedido_id'] ?? 0);
             $nuevoEstadoPago = trim((string) ($_POST['estado_pago_influencer'] ?? 'pendiente')) === 'pagado' ? 'pagado' : 'pendiente';
             $redirectFilter = admin_normalize_influencer_payment_filter($_POST['filtro_estado_pago'] ?? 'pendiente');
@@ -691,6 +735,10 @@ switch ($seccion) {
         }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nuevo_cupon'])) {
+            if ($isInfluencerViewer) {
+                admin_set_flash('error', 'No tienes permisos para crear cupones.');
+                admin_redirect('cupones', ['tab' => 'influencers']);
+            }
             $codigoInput = trim($_POST['codigo'] ?? '');
             $codigo = normalize_coupon_code($codigoInput);
             $tipo_descuento = $_POST['tipo_descuento'] ?? 'porcentaje';
@@ -733,6 +781,10 @@ switch ($seccion) {
         }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['editar_cupon'])) {
+            if ($isInfluencerViewer) {
+                admin_set_flash('error', 'No tienes permisos para editar cupones.');
+                admin_redirect('cupones', ['tab' => 'influencers']);
+            }
             $id = intval($_POST['id'] ?? 0);
             $codigoInput = trim($_POST['codigo'] ?? '');
             $codigo = normalize_coupon_code($codigoInput);
@@ -777,6 +829,10 @@ switch ($seccion) {
         }
 
         if (isset($_GET['borrar_cupon'])) {
+            if ($isInfluencerViewer) {
+                admin_set_flash('error', 'No tienes permisos para eliminar cupones.');
+                admin_redirect('cupones', ['tab' => 'influencers']);
+            }
             $id = intval($_GET['borrar_cupon']);
             $pdo->prepare('DELETE FROM cupones WHERE id = ?')->execute([$id]);
             admin_set_flash('success', 'Cupón eliminado.');
@@ -784,6 +840,10 @@ switch ($seccion) {
         }
 
         if (isset($_GET['toggle_cupon'])) {
+            if ($isInfluencerViewer) {
+                admin_set_flash('error', 'No tienes permisos para cambiar el estado de cupones.');
+                admin_redirect('cupones', ['tab' => 'influencers']);
+            }
             $id = intval($_GET['toggle_cupon']);
             $pdo->prepare('UPDATE cupones SET activo = NOT activo WHERE id = ?')->execute([$id]);
             admin_set_flash('success', 'Estado del cupón actualizado.');
@@ -1620,6 +1680,9 @@ require_once __DIR__ . '/includes/header.php';
                 if (!in_array($couponAdminTab, ['cupones', 'influencers'], true)) {
                     $couponAdminTab = 'cupones';
                 }
+                if ($isInfluencerViewer) {
+                    $couponAdminTab = 'influencers';
+                }
                 $influencerPaymentFilter = admin_normalize_influencer_payment_filter($_GET['filtro_estado_pago'] ?? 'pendiente');
                 $influencerDateFrom = admin_normalize_date_filter($_GET['fecha_desde'] ?? null);
                 $influencerDateTo = admin_normalize_date_filter($_GET['fecha_hasta'] ?? null);
@@ -1641,6 +1704,15 @@ require_once __DIR__ . '/includes/header.php';
                 if ($influencerDateTo !== null) {
                     $influencerSalesSql .= ' AND DATE(s.creado_en) <= ?';
                     $influencerSalesParams[] = $influencerDateTo;
+                }
+                if ($isInfluencerViewer) {
+                    $identityFilter = admin_build_influencer_sales_identity_filter($adminUser);
+                    if (!empty($identityFilter['clauses'])) {
+                        $influencerSalesSql .= ' AND (' . implode(' OR ', $identityFilter['clauses']) . ')';
+                        $influencerSalesParams = array_merge($influencerSalesParams, $identityFilter['params']);
+                    } else {
+                        $influencerSalesSql .= ' AND 1 = 0';
+                    }
                 }
                 $influencerSalesSql .= ' ORDER BY s.creado_en DESC';
                 $influencerSalesStmt = $pdo->prepare($influencerSalesSql);
@@ -1667,10 +1739,12 @@ require_once __DIR__ . '/includes/header.php';
                 ?>
                 <h2 class="text-center mb-4" style="color:#00fff7;">Gestión de Cupones</h2>
 
+                <?php if (!$isInfluencerViewer): ?>
                 <div class="d-flex flex-wrap justify-content-center gap-2 mb-4">
                     <a href="<?= htmlspecialchars($couponTabLink) ?>" class="btn rounded-pill px-4 py-2 fw-semibold <?= $couponAdminTab === 'cupones' ? 'btn-info' : 'btn-outline-info' ?>" style="<?= $couponAdminTab === 'cupones' ? 'background:#00fff7;color:#181f2a;border:2px solid #00fff7;box-shadow:0 0 12px #00fff7;' : 'border:2px solid #00fff7;color:#00fff7;background:#181f2a;' ?>">Cupones</a>
                     <a href="<?= htmlspecialchars($influencerTabLink) ?>" class="btn rounded-pill px-4 py-2 fw-semibold <?= $couponAdminTab === 'influencers' ? 'btn-info' : 'btn-outline-info' ?>" style="<?= $couponAdminTab === 'influencers' ? 'background:#00fff7;color:#181f2a;border:2px solid #00fff7;box-shadow:0 0 12px #00fff7;' : 'border:2px solid #00fff7;color:#00fff7;background:#181f2a;' ?>">Cupones de Influencers</a>
                 </div>
+                <?php endif; ?>
 
                 <?php if ($couponAdminTab === 'cupones'): ?>
                     <form method="POST" action="" class="row g-3 mb-4" style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:2rem;">
@@ -1916,7 +1990,7 @@ require_once __DIR__ . '/includes/header.php';
                         <div class="d-flex justify-content-between align-items-center gap-3 mb-3 flex-wrap">
                             <div>
                                 <h3 class="h5 mb-1" style="color:#00fff7;">Cupones de Influencers</h3>
-                                <p class="mb-0" style="color:#b2f6ff;">Ventas confirmadas con cupones asociados a influencers.</p>
+                                <p class="mb-0" style="color:#b2f6ff;"><?= $isInfluencerViewer ? 'Consulta tus ventas confirmadas y el estado de pago de tus comisiones.' : 'Ventas confirmadas con cupones asociados a influencers.' ?></p>
                             </div>
                         </div>
                         <form method="GET" action="" class="row g-3 align-items-end mb-4">
@@ -1976,17 +2050,21 @@ require_once __DIR__ . '/includes/header.php';
                                                 </td>
                                                 <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars(admin_display_value($sale['creado_en'] ?? null)) ?></td>
                                                 <td style="background:#181f2a; color:#b2f6ff; min-width:170px;">
-                                                    <form method="POST" action="" class="m-0">
-                                                        <input type="hidden" name="actualizar_estado_pago_influencer" value="1">
-                                                        <input type="hidden" name="pedido_id" value="<?= htmlspecialchars((string) $sale['pedido_id']) ?>">
-                                                        <input type="hidden" name="filtro_estado_pago" value="<?= htmlspecialchars($influencerPaymentFilter) ?>">
-                                                        <input type="hidden" name="fecha_desde" value="<?= htmlspecialchars((string) ($influencerDateFrom ?? '')) ?>">
-                                                        <input type="hidden" name="fecha_hasta" value="<?= htmlspecialchars((string) ($influencerDateTo ?? '')) ?>">
-                                                        <select name="estado_pago_influencer" class="form-select form-select-sm" onchange="this.form.submit()" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
-                                                            <option value="pendiente" <?= ($sale['estado_pago_influencer'] ?? 'pendiente') === 'pendiente' ? 'selected' : '' ?>>Pendiente</option>
-                                                            <option value="pagado" <?= ($sale['estado_pago_influencer'] ?? 'pendiente') === 'pagado' ? 'selected' : '' ?>>Pagado</option>
-                                                        </select>
-                                                    </form>
+                                                    <?php if ($isInfluencerViewer): ?>
+                                                        <div class="form-control form-control-sm" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;"><?= htmlspecialchars(($sale['estado_pago_influencer'] ?? 'pendiente') === 'pagado' ? 'Pagado' : 'Pendiente') ?></div>
+                                                    <?php else: ?>
+                                                        <form method="POST" action="" class="m-0">
+                                                            <input type="hidden" name="actualizar_estado_pago_influencer" value="1">
+                                                            <input type="hidden" name="pedido_id" value="<?= htmlspecialchars((string) $sale['pedido_id']) ?>">
+                                                            <input type="hidden" name="filtro_estado_pago" value="<?= htmlspecialchars($influencerPaymentFilter) ?>">
+                                                            <input type="hidden" name="fecha_desde" value="<?= htmlspecialchars((string) ($influencerDateFrom ?? '')) ?>">
+                                                            <input type="hidden" name="fecha_hasta" value="<?= htmlspecialchars((string) ($influencerDateTo ?? '')) ?>">
+                                                            <select name="estado_pago_influencer" class="form-select form-select-sm" onchange="this.form.submit()" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                                                                <option value="pendiente" <?= ($sale['estado_pago_influencer'] ?? 'pendiente') === 'pendiente' ? 'selected' : '' ?>>Pendiente</option>
+                                                                <option value="pagado" <?= ($sale['estado_pago_influencer'] ?? 'pendiente') === 'pagado' ? 'selected' : '' ?>>Pagado</option>
+                                                            </select>
+                                                        </form>
+                                                    <?php endif; ?>
                                                 </td>
                                                 <td style="background:#181f2a; color:#00ffb3; font-weight:bold;"><?= htmlspecialchars(admin_display_value($sale['moneda'] ?? null, '')) ?> <?= htmlspecialchars(admin_format_money($sale['total_comision'] ?? 0)) ?></td>
                                             </tr>
@@ -2007,18 +2085,22 @@ require_once __DIR__ . '/includes/header.php';
                                         <div style="margin-top:0.2rem; color:#00fff7;">Juego: <?= htmlspecialchars(admin_display_value($sale['juego_nombre'] ?? null)) ?></div>
                                         <div style="margin-top:0.2rem; color:#b2f6ff;">Pedido: #<?= htmlspecialchars((string) ($sale['pedido_id'] ?? '')) ?></div>
                                         <div style="margin-top:0.2rem; color:#b2f6ff;">Fecha: <?= htmlspecialchars(admin_display_value($sale['creado_en'] ?? null)) ?></div>
-                                        <form method="POST" action="" class="mt-2">
-                                            <input type="hidden" name="actualizar_estado_pago_influencer" value="1">
-                                            <input type="hidden" name="pedido_id" value="<?= htmlspecialchars((string) $sale['pedido_id']) ?>">
-                                            <input type="hidden" name="filtro_estado_pago" value="<?= htmlspecialchars($influencerPaymentFilter) ?>">
-                                            <input type="hidden" name="fecha_desde" value="<?= htmlspecialchars((string) ($influencerDateFrom ?? '')) ?>">
-                                            <input type="hidden" name="fecha_hasta" value="<?= htmlspecialchars((string) ($influencerDateTo ?? '')) ?>">
-                                            <label class="form-label" style="color:#00fff7;">Pendiente/Pagado</label>
-                                            <select name="estado_pago_influencer" class="form-select form-select-sm" onchange="this.form.submit()" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
-                                                <option value="pendiente" <?= ($sale['estado_pago_influencer'] ?? 'pendiente') === 'pendiente' ? 'selected' : '' ?>>Pendiente</option>
-                                                <option value="pagado" <?= ($sale['estado_pago_influencer'] ?? 'pendiente') === 'pagado' ? 'selected' : '' ?>>Pagado</option>
-                                            </select>
-                                        </form>
+                                        <?php if ($isInfluencerViewer): ?>
+                                            <div style="margin-top:0.45rem; color:#b2f6ff;">Estado: <span class="form-control form-control-sm d-inline-block" style="width:auto; background:#222c3a; color:#00fff7; border:1px solid #00fff7;"><?= htmlspecialchars(($sale['estado_pago_influencer'] ?? 'pendiente') === 'pagado' ? 'Pagado' : 'Pendiente') ?></span></div>
+                                        <?php else: ?>
+                                            <form method="POST" action="" class="mt-2">
+                                                <input type="hidden" name="actualizar_estado_pago_influencer" value="1">
+                                                <input type="hidden" name="pedido_id" value="<?= htmlspecialchars((string) $sale['pedido_id']) ?>">
+                                                <input type="hidden" name="filtro_estado_pago" value="<?= htmlspecialchars($influencerPaymentFilter) ?>">
+                                                <input type="hidden" name="fecha_desde" value="<?= htmlspecialchars((string) ($influencerDateFrom ?? '')) ?>">
+                                                <input type="hidden" name="fecha_hasta" value="<?= htmlspecialchars((string) ($influencerDateTo ?? '')) ?>">
+                                                <label class="form-label" style="color:#00fff7;">Pendiente/Pagado</label>
+                                                <select name="estado_pago_influencer" class="form-select form-select-sm" onchange="this.form.submit()" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                                                    <option value="pendiente" <?= ($sale['estado_pago_influencer'] ?? 'pendiente') === 'pendiente' ? 'selected' : '' ?>>Pendiente</option>
+                                                    <option value="pagado" <?= ($sale['estado_pago_influencer'] ?? 'pendiente') === 'pagado' ? 'selected' : '' ?>>Pagado</option>
+                                                </select>
+                                            </form>
+                                        <?php endif; ?>
                                         <div style="margin-top:0.45rem; color:#00ffb3; font-weight:bold;">Total: <?= htmlspecialchars(admin_display_value($sale['moneda'] ?? null, '')) ?> <?= htmlspecialchars(admin_format_money($sale['total_comision'] ?? 0)) ?></div>
                                     </div>
                                 <?php endforeach; ?>

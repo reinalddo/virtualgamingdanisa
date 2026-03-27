@@ -39,8 +39,10 @@ $authUserName = trim((string) (($authUser['full_name'] ?? $authUser['nombre'] ??
 $authUserEmail = trim((string) ($authUser['email'] ?? ''));
 $authUserPhone = trim((string) ($authUser['telefono'] ?? ''));
 $authUserRole = trim((string) ($authUser['rol'] ?? ''));
-$authUserCanAccessAdmin = in_array($authUserRole, ['admin', 'empleado'], true);
-$authUserAdminHome = $authUserRole === 'empleado' ? '/admin/pedidos' : '/admin/dashboard';
+$authUserCanAccessAdmin = in_array($authUserRole, ['admin', 'empleado', 'influencer'], true);
+$authUserAdminHome = $authUserRole === 'empleado'
+  ? '/admin/pedidos'
+  : ($authUserRole === 'influencer' ? '/admin/cupones?tab=influencers' : '/admin/dashboard');
 $authUserInitials = 'US';
 if ($authUserName !== '') {
   $nameParts = preg_split('/\s+/', $authUserName);
@@ -303,19 +305,23 @@ $authModalLoginEmail = trim((string) ($authModalState['email'] ?? ''));
           <?php if ($authUser): ?>
             <?php if ($authUserCanAccessAdmin): ?>
               <hr class="my-2 border-slate-700">
-              <?php if ($authUserRole === 'admin'): ?>
-              <a href="/admin/dashboard" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Dashboard</a>
-              <a href="/admin/juegos" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Juegos</a>
-              <a href="/admin/monedas" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Monedas</a>
+              <?php if ($authUserRole === 'influencer'): ?>
+              <a href="<?php echo htmlspecialchars($authUserAdminHome, ENT_QUOTES, 'UTF-8'); ?>" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Cupones</a>
+              <?php else: ?>
+                <?php if ($authUserRole === 'admin'): ?>
+                <a href="/admin/dashboard" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Dashboard</a>
+                <a href="/admin/juegos" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Juegos</a>
+                <a href="/admin/monedas" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Monedas</a>
+                <?php endif; ?>
+                <a href="/admin/movimientos" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Movimientos</a>
+                <a href="/admin/pedidos" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Pedidos</a>
+                <?php if ($authUserRole === 'admin'): ?>
+                <a href="/admin/usuarios" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Usuarios</a>
+                <a href="/admin/cupones" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Cupones</a>
+                <a href="/admin/configuracion" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Configuración</a>
+                <?php endif; ?>
+                <a href="<?php echo htmlspecialchars($authUserAdminHome, ENT_QUOTES, 'UTF-8'); ?>" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Ir al Admin</a>
               <?php endif; ?>
-              <a href="/admin/movimientos" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Movimientos</a>
-              <a href="/admin/pedidos" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Pedidos</a>
-              <?php if ($authUserRole === 'admin'): ?>
-              <a href="/admin/usuarios" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Usuarios</a>
-              <a href="/admin/cupones" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Cupones</a>
-              <a href="/admin/configuracion" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Configuración</a>
-              <?php endif; ?>
-              <a href="<?php echo htmlspecialchars($authUserAdminHome, ENT_QUOTES, 'UTF-8'); ?>" class="btn btn-admin border rounded-3 px-4 py-3 fw-semibold">Ir al Admin</a>
             <?php endif; ?>
             <a href="/logout" class="btn btn-danger border rounded-3 px-4 py-3 fw-semibold">Cerrar sesión</a>
           <?php endif; ?>

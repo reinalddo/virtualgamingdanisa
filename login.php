@@ -59,5 +59,9 @@ if (($user["rol"] ?? "") === "empleado") {
   header("Location: /admin/pedidos");
   exit;
 }
+if (($user["rol"] ?? "") === "influencer") {
+  header("Location: /admin/cupones?tab=influencers");
+  exit;
+}
 header("Location: /");
 exit;
