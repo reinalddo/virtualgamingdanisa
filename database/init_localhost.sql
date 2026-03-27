@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS usuarios (
   password VARCHAR(255) NOT NULL,
   nombre VARCHAR(100),
   email VARCHAR(100),
-  rol ENUM('admin','usuario') DEFAULT 'usuario',
+  telefono VARCHAR(50) DEFAULT NULL,
+  rol ENUM('admin','empleado','influencer','usuario') DEFAULT 'usuario',
   creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

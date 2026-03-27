@@ -438,6 +438,7 @@ $menuScript = <<<'SCRIPT'
         userProfileForm.reset();
         userProfileForm.elements.name.value = (data.user && data.user.full_name) || "";
         userProfileForm.elements.email.value = (data.user && data.user.email) || "";
+        userProfileForm.elements.phone.value = (data.user && data.user.phone) || "";
         showFeedback(userProfileFeedback, data.message || "Datos guardados.", "success");
       } catch (error) {
         showFeedback(userProfileFeedback, error.message || "No se pudieron guardar los cambios.", "danger");

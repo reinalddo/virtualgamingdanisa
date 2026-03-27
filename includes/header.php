@@ -13,6 +13,7 @@ if ($authScriptBaseDir === '/' || $authScriptBaseDir === '.') {
 require_once __DIR__ . '/store_config.php';
 require_once __DIR__ . '/tenant.php';
 require_once __DIR__ . '/google_oauth.php';
+require_once __DIR__ . '/auth.php';
 
 if (!isset($brandPrefix)) {
   $brandPrefix = store_config_get('nombre_prefijo', 'TIENDA');
@@ -33,9 +34,10 @@ if ($pageDescription === '') {
   $pageDescription = 'Compra monedas y recargas digitales en TVirtualGaming. Recibe ofertas, promociones y novedades directamente en tu WhatsApp.';
 }
 
-$authUser = $_SESSION['auth_user'] ?? null;
+$authUser = auth_sync_session_user();
 $authUserName = trim((string) (($authUser['full_name'] ?? $authUser['nombre'] ?? $authUser['email'] ?? 'Usuario')));
 $authUserEmail = trim((string) ($authUser['email'] ?? ''));
+$authUserPhone = trim((string) ($authUser['telefono'] ?? ''));
 $authUserRole = trim((string) ($authUser['rol'] ?? ''));
 $authUserCanAccessAdmin = in_array($authUserRole, ['admin', 'empleado'], true);
 $authUserAdminHome = $authUserRole === 'empleado' ? '/admin/pedidos' : '/admin/dashboard';
@@ -501,6 +503,10 @@ $authModalLoginEmail = trim((string) ($authModalState['email'] ?? ''));
                 <div>
                   <label class="form-label small text-info">Correo</label>
                   <input type="email" name="email" class="form-control bg-dark text-info border-info" value="<?php echo htmlspecialchars($authUserEmail, ENT_QUOTES, 'UTF-8'); ?>" required />
+                </div>
+                <div>
+                  <label class="form-label small text-info">Teléfono</label>
+                  <input type="tel" name="phone" class="form-control bg-dark text-info border-info" value="<?php echo htmlspecialchars($authUserPhone, ENT_QUOTES, 'UTF-8'); ?>" autocomplete="tel" placeholder="Ej. +58 412 0000000" />
                 </div>
                 <div>
                   <label class="form-label small text-info">Nueva contraseña</label>

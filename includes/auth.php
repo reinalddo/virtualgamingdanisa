@@ -1,9 +1,55 @@
 <?php
 require_once __DIR__ . '/app_timezone.php';
 require_once __DIR__ . '/app_session.php';
+require_once __DIR__ . '/db_connect.php';
 
 function auth_normalize_email($email) {
   return strtolower(trim((string) $email));
+}
+
+function auth_sync_session_user(): ?array {
+  app_session_start();
+  $sessionUser = $_SESSION['auth_user'] ?? null;
+  if (!is_array($sessionUser) || empty($sessionUser['id'])) {
+    return null;
+  }
+
+  global $mysqli;
+  if (!isset($mysqli) || !($mysqli instanceof mysqli)) {
+    return $sessionUser;
+  }
+
+  $userId = (int) $sessionUser['id'];
+  $stmt = $mysqli->prepare('SELECT id, username, nombre, email, telefono, rol FROM usuarios WHERE id = ? LIMIT 1');
+  if (!$stmt) {
+    return $sessionUser;
+  }
+
+  $stmt->bind_param('i', $userId);
+  if (!$stmt->execute()) {
+    $stmt->close();
+    return $sessionUser;
+  }
+
+  $result = $stmt->get_result();
+  $freshUser = $result ? $result->fetch_assoc() : null;
+  $stmt->close();
+
+  if (!is_array($freshUser)) {
+    unset($_SESSION['auth_user']);
+    return null;
+  }
+
+  $_SESSION['auth_user'] = [
+    'id' => (int) ($freshUser['id'] ?? $userId),
+    'email' => (string) ($freshUser['email'] ?? ''),
+    'telefono' => (string) ($freshUser['telefono'] ?? ''),
+    'full_name' => (string) ($freshUser['nombre'] ?? ''),
+    'username' => (string) ($freshUser['username'] ?? ''),
+    'rol' => strtolower(trim((string) ($freshUser['rol'] ?? 'usuario'))),
+  ];
+
+  return $_SESSION['auth_user'];
 }
 
 function auth_set_flash($type, $message) {

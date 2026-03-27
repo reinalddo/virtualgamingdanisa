@@ -159,6 +159,51 @@ function admin_fetch_users(PDO $pdo, array $filters): array {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+function admin_display_phone($value): string {
+    $phone = trim((string) $value);
+    return $phone !== '' ? $phone : 'No disponible';
+}
+
+function admin_fetch_influencer_users(PDO $pdo): array {
+    $stmt = $pdo->prepare("SELECT id, nombre, email, telefono FROM usuarios WHERE rol = 'influencer' ORDER BY nombre ASC, email ASC, id ASC");
+    $stmt->execute();
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function admin_match_coupon_influencer_user_id(array $users, ?array $coupon): string {
+    if (!$coupon) {
+        return '';
+    }
+
+    $couponEmail = strtolower(trim((string) ($coupon['email_influencer'] ?? '')));
+    $couponPhone = trim((string) ($coupon['telefono_influencer'] ?? ''));
+    $couponName = trim((string) ($coupon['nombre_influencer'] ?? ''));
+    $couponNameNormalized = function_exists('mb_strtolower') ? mb_strtolower($couponName, 'UTF-8') : strtolower($couponName);
+
+    foreach ($users as $user) {
+        if ($couponEmail !== '' && strtolower(trim((string) ($user['email'] ?? ''))) === $couponEmail) {
+            return (string) ($user['id'] ?? '');
+        }
+    }
+
+    foreach ($users as $user) {
+        if ($couponPhone !== '' && trim((string) ($user['telefono'] ?? '')) === $couponPhone) {
+            return (string) ($user['id'] ?? '');
+        }
+    }
+
+    foreach ($users as $user) {
+        $userName = trim((string) ($user['nombre'] ?? ''));
+        $userNameNormalized = function_exists('mb_strtolower') ? mb_strtolower($userName, 'UTF-8') : strtolower($userName);
+        if ($couponNameNormalized !== '' && $userNameNormalized === $couponNameNormalized) {
+            return (string) ($user['id'] ?? '');
+        }
+    }
+
+    return '';
+}
+
 function admin_render_users_results(array $usuarios): string {
     ob_start();
 
@@ -174,6 +219,7 @@ function admin_render_users_results(array $usuarios): string {
     echo '<th style="color:#00fff7; background:#181f2a;">ID</th>';
     echo '<th style="color:#00fff7; background:#181f2a;">Nombre</th>';
     echo '<th style="color:#00fff7; background:#181f2a;">Email</th>';
+    echo '<th style="color:#00fff7; background:#181f2a;">Teléfono</th>';
     echo '<th style="color:#00fff7; background:#181f2a;">Rol</th>';
     echo '<th style="color:#00fff7; background:#181f2a;">Creado</th>';
     echo '<th style="color:#00fff7; background:#181f2a;">Acciones</th>';
@@ -192,6 +238,7 @@ function admin_render_users_results(array $usuarios): string {
         echo '<input type="text" name="nombre" value="' . htmlspecialchars($usuario['nombre']) . '" class="form-control form-control-sm" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
         echo '</td>';
         echo '<td style="color:#fff; background:#181f2a;">' . htmlspecialchars($usuario['email']) . '</td>';
+        echo '<td style="color:#b2f6ff; background:#181f2a;">' . htmlspecialchars(admin_display_phone($usuario['telefono'] ?? '')) . '</td>';
         echo '<td style="background:#181f2a;">';
         echo '<select name="rol" class="form-select form-select-sm" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
         foreach (admin_manageable_user_roles() as $rolVal => $rolTxt) {
@@ -234,6 +281,10 @@ function admin_render_users_results(array $usuarios): string {
         echo '<div class="mb-2">';
         echo '<label class="form-label text-info">Email</label>';
         echo '<div class="form-control bg-dark text-light">' . htmlspecialchars($usuario['email']) . '</div>';
+        echo '</div>';
+        echo '<div class="mb-2">';
+        echo '<label class="form-label text-info">Teléfono</label>';
+        echo '<div class="form-control bg-dark text-light">' . htmlspecialchars(admin_display_phone($usuario['telefono'] ?? '')) . '</div>';
         echo '</div>';
         echo '<div class="mb-2">';
         echo '<label class="form-label text-info">Rol</label>';
@@ -1573,6 +1624,7 @@ require_once __DIR__ . '/includes/header.php';
                 $influencerDateFrom = admin_normalize_date_filter($_GET['fecha_desde'] ?? null);
                 $influencerDateTo = admin_normalize_date_filter($_GET['fecha_hasta'] ?? null);
                 $cupones = $pdo->query('SELECT * FROM cupones ORDER BY id DESC')->fetchAll(PDO::FETCH_ASSOC);
+                $influencerUsers = admin_fetch_influencer_users($pdo);
                 $influencerSalesSql = "SELECT s.*, p.estado_pago_influencer, p.juego_nombre
                     FROM cupones_influencer_ventas s
                     INNER JOIN pedidos p ON p.id = s.pedido_id
@@ -1607,6 +1659,11 @@ require_once __DIR__ . '/includes/header.php';
                 }
                 $couponTabLink = '?seccion=cupones&tab=cupones';
                 $influencerTabLink = '?seccion=cupones&tab=influencers';
+                $selectedInfluencerUserId = admin_match_coupon_influencer_user_id($influencerUsers, $edit_cupon);
+                $currentInfluencerName = $edit_cupon ? trim((string) ($edit_cupon['nombre_influencer'] ?? '')) : '';
+                $currentInfluencerPhone = $edit_cupon ? trim((string) ($edit_cupon['telefono_influencer'] ?? '')) : '';
+                $currentInfluencerEmail = $edit_cupon ? trim((string) ($edit_cupon['email_influencer'] ?? '')) : '';
+                $hasLegacyInfluencer = $selectedInfluencerUserId === '' && ($currentInfluencerName !== '' || $currentInfluencerPhone !== '' || $currentInfluencerEmail !== '');
                 ?>
                 <h2 class="text-center mb-4" style="color:#00fff7;">Gestión de Cupones</h2>
 
@@ -1658,25 +1715,129 @@ require_once __DIR__ . '/includes/header.php';
                         </div>
                         <div class="col-12 mt-2">
                             <div style="background:#0f172a; border:1px solid rgba(0,255,247,0.3); border-radius:16px; padding:1.25rem;">
-                                <h4 class="h6 mb-3" style="color:#00fff7;">Configuración del influencer</h4>
+                                <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-end gap-3 mb-3">
+                                    <div>
+                                        <h4 class="h6 mb-1" style="color:#00fff7;">Configuración del influencer</h4>
+                                        <p class="mb-0" style="color:#7dd3fc; font-size:0.95rem;">Selecciona un usuario influencer registrado para completar sus datos automáticamente.</p>
+                                    </div>
+                                    <div class="row g-2" style="width:min(100%, 520px);">
+                                        <div class="col-12 col-md-6">
+                                            <label class="form-label mb-1" style="color:#00fff7;">Buscar influencer</label>
+                                            <input type="text" data-influencer-user-search="1" class="form-control form-control-sm" placeholder="Nombre, correo o teléfono" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                                        </div>
+                                        <div class="col-12 col-md-6">
+                                            <label class="form-label mb-1" style="color:#00fff7;">Influencer registrado</label>
+                                            <select name="influencer_user_id" data-influencer-user-select="1" class="form-select form-select-sm" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                                                <option value="">Selecciona un influencer</option>
+                                                <?php if ($hasLegacyInfluencer): ?>
+                                                    <option value="legacy" data-name="<?= htmlspecialchars($currentInfluencerName, ENT_QUOTES, 'UTF-8') ?>" data-phone="<?= htmlspecialchars($currentInfluencerPhone, ENT_QUOTES, 'UTF-8') ?>" data-email="<?= htmlspecialchars($currentInfluencerEmail, ENT_QUOTES, 'UTF-8') ?>" selected>Actual: <?= htmlspecialchars($currentInfluencerName !== '' ? $currentInfluencerName : ($currentInfluencerEmail !== '' ? $currentInfluencerEmail : 'Influencer actual')) ?></option>
+                                                <?php endif; ?>
+                                                <?php foreach ($influencerUsers as $influencerUser): ?>
+                                                    <?php
+                                                    $optionId = (string) ($influencerUser['id'] ?? '');
+                                                    $optionName = trim((string) ($influencerUser['nombre'] ?? ''));
+                                                    $optionEmail = trim((string) ($influencerUser['email'] ?? ''));
+                                                    $optionPhone = trim((string) ($influencerUser['telefono'] ?? ''));
+                                                    $optionLabel = $optionName !== '' ? $optionName : $optionEmail;
+                                                    if ($optionEmail !== '' && $optionEmail !== $optionLabel) {
+                                                        $optionLabel .= ' | ' . $optionEmail;
+                                                    }
+                                                    if ($optionPhone !== '') {
+                                                        $optionLabel .= ' | ' . $optionPhone;
+                                                    }
+                                                    ?>
+                                                    <option value="<?= htmlspecialchars($optionId) ?>" data-name="<?= htmlspecialchars($optionName, ENT_QUOTES, 'UTF-8') ?>" data-phone="<?= htmlspecialchars($optionPhone, ENT_QUOTES, 'UTF-8') ?>" data-email="<?= htmlspecialchars($optionEmail, ENT_QUOTES, 'UTF-8') ?>" <?= $selectedInfluencerUserId === $optionId ? 'selected' : '' ?>><?= htmlspecialchars($optionLabel) ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
                                 <div class="row g-3">
                                     <div class="col-md-4">
                                         <label class="form-label" style="color:#00fff7;">Nombre influencer</label>
-                                        <input type="text" name="nombre_influencer" value="<?= $edit_cupon ? htmlspecialchars((string) ($edit_cupon['nombre_influencer'] ?? '')) : '' ?>" class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                                        <input type="text" name="nombre_influencer" data-influencer-target="name" value="<?= $edit_cupon ? htmlspecialchars((string) ($edit_cupon['nombre_influencer'] ?? '')) : '' ?>" readonly class="form-control" style="background:#1b2430; color:#00fff7; border:1px solid #00fff7;">
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label" style="color:#00fff7;">Teléfono influencer</label>
-                                        <input type="text" name="telefono_influencer" value="<?= $edit_cupon ? htmlspecialchars((string) ($edit_cupon['telefono_influencer'] ?? '')) : '' ?>" class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                                        <input type="text" name="telefono_influencer" data-influencer-target="phone" value="<?= $edit_cupon ? htmlspecialchars((string) ($edit_cupon['telefono_influencer'] ?? '')) : '' ?>" readonly class="form-control" style="background:#1b2430; color:#00fff7; border:1px solid #00fff7;">
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label" style="color:#00fff7;">Correo influencer</label>
-                                        <input type="email" name="email_influencer" value="<?= $edit_cupon ? htmlspecialchars((string) ($edit_cupon['email_influencer'] ?? '')) : '' ?>" class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                                        <input type="email" name="email_influencer" data-influencer-target="email" value="<?= $edit_cupon ? htmlspecialchars((string) ($edit_cupon['email_influencer'] ?? '')) : '' ?>" readonly class="form-control" style="background:#1b2430; color:#00fff7; border:1px solid #00fff7;">
                                     </div>
                                     <div class="col-md-4">
                                         <label class="form-label" style="color:#00fff7;">Comisión influencer (%)</label>
                                         <input type="number" name="comision_influencer" step="0.01" min="0" max="100" value="<?= $edit_cupon ? htmlspecialchars((string) ($edit_cupon['comision_influencer'] ?? '0')) : '0' ?>" class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
                                     </div>
                                 </div>
+                                <script>
+                                (() => {
+                                    const searchInput = document.querySelector('[data-influencer-user-search="1"]');
+                                    const select = document.querySelector('[data-influencer-user-select="1"]');
+                                    const nameField = document.querySelector('[data-influencer-target="name"]');
+                                    const phoneField = document.querySelector('[data-influencer-target="phone"]');
+                                    const emailField = document.querySelector('[data-influencer-target="email"]');
+                                    if (!searchInput || !select || !nameField || !phoneField || !emailField) {
+                                        return;
+                                    }
+
+                                    const optionData = Array.from(select.options).map((option) => ({
+                                        value: option.value,
+                                        label: option.textContent || '',
+                                        name: option.dataset.name || '',
+                                        phone: option.dataset.phone || '',
+                                        email: option.dataset.email || '',
+                                        search: `${option.textContent || ''} ${option.dataset.name || ''} ${option.dataset.phone || ''} ${option.dataset.email || ''}`.toLowerCase(),
+                                    }));
+
+                                    const rebuildOptions = () => {
+                                        const query = searchInput.value.trim().toLowerCase();
+                                        const currentValue = select.value;
+                                        const filteredOptions = optionData.filter((option) => option.value === '' || option.value === currentValue || option.search.includes(query));
+
+                                        select.innerHTML = '';
+                                        filteredOptions.forEach((option) => {
+                                            const optionElement = document.createElement('option');
+                                            optionElement.value = option.value;
+                                            optionElement.textContent = option.label;
+                                            if (option.name) {
+                                                optionElement.dataset.name = option.name;
+                                            }
+                                            if (option.phone) {
+                                                optionElement.dataset.phone = option.phone;
+                                            }
+                                            if (option.email) {
+                                                optionElement.dataset.email = option.email;
+                                            }
+                                            if (option.value === currentValue) {
+                                                optionElement.selected = true;
+                                            }
+                                            select.appendChild(optionElement);
+                                        });
+                                    };
+
+                                    const applySelectedUser = () => {
+                                        const selectedOption = select.options[select.selectedIndex];
+                                        if (!selectedOption || !selectedOption.value) {
+                                            nameField.value = '';
+                                            phoneField.value = '';
+                                            emailField.value = '';
+                                            return;
+                                        }
+
+                                        nameField.value = selectedOption.dataset.name || '';
+                                        phoneField.value = selectedOption.dataset.phone || '';
+                                        emailField.value = selectedOption.dataset.email || '';
+                                    };
+
+                                    searchInput.addEventListener('input', () => {
+                                        rebuildOptions();
+                                        applySelectedUser();
+                                    });
+                                    select.addEventListener('change', applySelectedUser);
+                                    applySelectedUser();
+                                })();
+                                </script>
                             </div>
                         </div>
                         <div class="col-12 d-flex flex-column flex-md-row gap-2">

@@ -27,7 +27,7 @@ if ($email === "" || $password === "") {
   $openLoginModalWithError("Completa el correo y la contraseña.", $email);
 }
 
-$stmt = $mysqli->prepare("SELECT id, username, password, nombre, email, rol FROM usuarios WHERE email = ? LIMIT 1");
+$stmt = $mysqli->prepare("SELECT id, username, password, nombre, email, telefono, rol FROM usuarios WHERE email = ? LIMIT 1");
 $stmt->bind_param('s', $email);
 $stmt->execute();
 $res = $stmt->get_result();
@@ -44,6 +44,7 @@ unset($_SESSION["auth_modal_state"]);
 $_SESSION["auth_user"] = [
   "id" => $user["id"],
   "email" => $user["email"],
+  "telefono" => $user["telefono"] ?? '',
   "full_name" => $user["nombre"],
   "username" => $user["username"],
   "rol" => $user["rol"]

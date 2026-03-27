@@ -17,7 +17,7 @@ if (!isset($data['nombre']) || !isset($data['correo']) || !isset($data['telefono
 
 $nombre = trim($data['nombre']);
 $correo = strtolower(trim($data['correo']));
-$telefono = trim($data['telefono']);
+$telefono = substr(trim($data['telefono']), 0, 50);
 $contrasena = $data['contrasena'];
 
 if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) {
@@ -40,10 +40,10 @@ if ($stmt->fetch()) {
 
 $hash = password_hash($contrasena, PASSWORD_DEFAULT);
 $rol = 'usuario';
-$sql = 'INSERT INTO usuarios (username, password, nombre, email, rol, creado_en) VALUES (?, ?, ?, ?, ?, NOW())';
+$sql = 'INSERT INTO usuarios (username, password, nombre, email, telefono, rol, creado_en) VALUES (?, ?, ?, ?, ?, ?, NOW())';
 $username = $correo;
 $stmt = $pdo->prepare($sql);
-$ok = $stmt->execute([$username, $hash, $nombre, $correo, $rol]);
+$ok = $stmt->execute([$username, $hash, $nombre, $correo, $telefono, $rol]);
 if ($ok) {
     response(true, 'Usuario registrado correctamente.');
 } else {

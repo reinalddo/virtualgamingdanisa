@@ -64,13 +64,14 @@ try {
         throw new RuntimeException('Google no devolvió un correo verificado para esta cuenta.');
     }
 
-    $stmt = $pdo->prepare('SELECT id, username, nombre, email, rol FROM usuarios WHERE email = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, username, nombre, email, telefono, rol FROM usuarios WHERE email = ? LIMIT 1');
     $stmt->execute([$email]);
     $user = $stmt->fetch();
 
     if ($user) {
         $userId = (int) $user['id'];
         $username = trim((string) ($user['username'] ?? ''));
+        $userPhone = (string) ($user['telefono'] ?? '');
         if ($username === '') {
             $username = $email;
         }
@@ -82,9 +83,10 @@ try {
         $username = $email;
         $passwordHash = password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT);
         $role = 'usuario';
+        $userPhone = '';
 
-        $insertStmt = $pdo->prepare('INSERT INTO usuarios (username, password, nombre, email, rol, creado_en) VALUES (?, ?, ?, ?, ?, NOW())');
-        $insertStmt->execute([$username, $passwordHash, $fullName, $email, $role]);
+        $insertStmt = $pdo->prepare('INSERT INTO usuarios (username, password, nombre, email, telefono, rol, creado_en) VALUES (?, ?, ?, ?, ?, ?, NOW())');
+        $insertStmt->execute([$username, $passwordHash, $fullName, $email, null, $role]);
         $userId = (int) $pdo->lastInsertId();
     }
 
@@ -92,6 +94,7 @@ try {
     $_SESSION['auth_user'] = [
         'id' => $userId,
         'email' => $email,
+        'telefono' => $userPhone,
         'full_name' => $fullName,
         'username' => $username,
         'rol' => $role,
