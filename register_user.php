@@ -31,7 +31,20 @@ if (strlen($contrasena) < 6) {
 // Guardar usuario en la base de datos MySQL
 require_once __DIR__ . '/includes/db.php';
 
-$hasPhoneColumn = users_has_phone_column_pdo($pdo);
+function register_users_has_phone_column(PDO $connection): bool {
+    if (function_exists('users_has_phone_column_pdo')) {
+        return users_has_phone_column_pdo($connection);
+    }
+
+    try {
+        $result = $connection->query("SHOW COLUMNS FROM usuarios LIKE 'telefono'");
+        return $result instanceof PDOStatement && (bool) $result->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $exception) {
+        return false;
+    }
+}
+
+$hasPhoneColumn = register_users_has_phone_column($pdo);
 
 // Verificar si el correo ya existe en la BD
 $stmt = $pdo->prepare('SELECT id FROM usuarios WHERE email = ? LIMIT 1');

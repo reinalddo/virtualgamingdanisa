@@ -7,6 +7,19 @@ require_once __DIR__ . '/includes/store_config.php';
 require_once __DIR__ . '/includes/google_oauth.php';
 require_once __DIR__ . '/includes/db.php';
 
+function google_users_has_phone_column(PDO $connection): bool {
+    if (function_exists('users_has_phone_column_pdo')) {
+        return users_has_phone_column_pdo($connection);
+    }
+
+    try {
+        $result = $connection->query("SHOW COLUMNS FROM usuarios LIKE 'telefono'");
+        return $result instanceof PDOStatement && (bool) $result->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $exception) {
+        return false;
+    }
+}
+
 if (!google_oauth_is_configured()) {
     $_SESSION['auth_flash'] = ['type' => 'error', 'message' => 'El acceso con Google no está configurado todavía.'];
     header('Location: ' . google_oauth_home_url());
@@ -64,7 +77,7 @@ try {
         throw new RuntimeException('Google no devolvió un correo verificado para esta cuenta.');
     }
 
-    $hasPhoneColumn = users_has_phone_column_pdo($pdo);
+    $hasPhoneColumn = google_users_has_phone_column($pdo);
     $selectColumns = $hasPhoneColumn
         ? 'id, username, nombre, email, telefono, rol'
         : 'id, username, nombre, email, rol';

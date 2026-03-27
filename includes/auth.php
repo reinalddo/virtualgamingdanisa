@@ -7,6 +7,24 @@ function auth_normalize_email($email) {
   return strtolower(trim((string) $email));
 }
 
+function auth_users_has_phone_column(mysqli $connection): bool {
+  if (function_exists('users_has_phone_column_mysqli')) {
+    return users_has_phone_column_mysqli($connection);
+  }
+
+  try {
+    $result = $connection->query("SHOW COLUMNS FROM usuarios LIKE 'telefono'");
+    $hasColumn = $result instanceof mysqli_result && (bool) $result->fetch_assoc();
+    if ($result instanceof mysqli_result) {
+      $result->free();
+    }
+
+    return $hasColumn;
+  } catch (Throwable $exception) {
+    return false;
+  }
+}
+
 function auth_sync_session_user(): ?array {
   app_session_start();
   $sessionUser = $_SESSION['auth_user'] ?? null;
@@ -20,7 +38,7 @@ function auth_sync_session_user(): ?array {
   }
 
   $userId = (int) $sessionUser['id'];
-  $hasPhoneColumn = users_has_phone_column_mysqli($mysqli);
+  $hasPhoneColumn = auth_users_has_phone_column($mysqli);
   $selectColumns = $hasPhoneColumn
     ? 'id, username, nombre, email, telefono, rol'
     : 'id, username, nombre, email, rol';

@@ -8,6 +8,24 @@ require_once __DIR__ . '/../includes/currency.php';
 
 currency_ensure_schema();
 
+function account_users_has_phone_column(mysqli $connection): bool {
+    if (function_exists('users_has_phone_column_mysqli')) {
+        return users_has_phone_column_mysqli($connection);
+    }
+
+    try {
+        $result = $connection->query("SHOW COLUMNS FROM usuarios LIKE 'telefono'");
+        $hasColumn = $result instanceof mysqli_result && (bool) $result->fetch_assoc();
+        if ($result instanceof mysqli_result) {
+            $result->free();
+        }
+
+        return $hasColumn;
+    } catch (Throwable $exception) {
+        return false;
+    }
+}
+
 function account_json_error(string $message, int $status = 400): void {
     http_response_code($status);
     echo json_encode(['ok' => false, 'message' => $message]);
@@ -45,7 +63,7 @@ if ($action === '') {
 $authUser = account_ensure_user_session();
 $authUserId = (int) ($authUser['id'] ?? 0);
 $authUserEmail = trim((string) ($authUser['email'] ?? ''));
-$hasPhoneColumn = users_has_phone_column_mysqli($mysqli);
+$hasPhoneColumn = account_users_has_phone_column($mysqli);
 
 if ($action === 'orders') {
     $orders = [];

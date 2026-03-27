@@ -2,6 +2,24 @@
 require_once __DIR__ . "/includes/db_connect.php";
 require_once __DIR__ . "/includes/app_session.php";
 
+function login_users_has_phone_column(mysqli $connection): bool {
+  if (function_exists('users_has_phone_column_mysqli')) {
+    return users_has_phone_column_mysqli($connection);
+  }
+
+  try {
+    $result = $connection->query("SHOW COLUMNS FROM usuarios LIKE 'telefono'");
+    $hasColumn = $result instanceof mysqli_result && (bool) $result->fetch_assoc();
+    if ($result instanceof mysqli_result) {
+      $result->free();
+    }
+
+    return $hasColumn;
+  } catch (Throwable $exception) {
+    return false;
+  }
+}
+
 $openLoginModalWithError = static function (string $message, string $emailValue = ''): void {
   app_session_start();
 
@@ -27,7 +45,7 @@ if ($email === "" || $password === "") {
   $openLoginModalWithError("Completa el correo y la contraseña.", $email);
 }
 
-$hasPhoneColumn = users_has_phone_column_mysqli($mysqli);
+$hasPhoneColumn = login_users_has_phone_column($mysqli);
 $selectColumns = $hasPhoneColumn
   ? "id, username, password, nombre, email, telefono, rol"
   : "id, username, password, nombre, email, rol";

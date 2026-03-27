@@ -177,8 +177,21 @@ function admin_display_phone($value): string {
     return $phone !== '' ? $phone : 'No disponible';
 }
 
+function admin_users_has_phone_column(PDO $pdo): bool {
+    if (function_exists('users_has_phone_column_pdo')) {
+        return users_has_phone_column_pdo($pdo);
+    }
+
+    try {
+        $result = $pdo->query("SHOW COLUMNS FROM usuarios LIKE 'telefono'");
+        return $result instanceof PDOStatement && (bool) $result->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $exception) {
+        return false;
+    }
+}
+
 function admin_fetch_influencer_users(PDO $pdo): array {
-    $selectColumns = users_has_phone_column_pdo($pdo)
+    $selectColumns = admin_users_has_phone_column($pdo)
         ? 'id, nombre, email, telefono'
         : 'id, nombre, email';
     $stmt = $pdo->prepare("SELECT $selectColumns FROM usuarios WHERE rol = 'influencer' ORDER BY nombre ASC, email ASC, id ASC");
