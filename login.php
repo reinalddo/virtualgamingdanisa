@@ -27,7 +27,11 @@ if ($email === "" || $password === "") {
   $openLoginModalWithError("Completa el correo y la contraseña.", $email);
 }
 
-$stmt = $mysqli->prepare("SELECT id, username, password, nombre, email, telefono, rol FROM usuarios WHERE email = ? LIMIT 1");
+$hasPhoneColumn = users_has_phone_column_mysqli($mysqli);
+$selectColumns = $hasPhoneColumn
+  ? "id, username, password, nombre, email, telefono, rol"
+  : "id, username, password, nombre, email, rol";
+$stmt = $mysqli->prepare("SELECT $selectColumns FROM usuarios WHERE email = ? LIMIT 1");
 $stmt->bind_param('s', $email);
 $stmt->execute();
 $res = $stmt->get_result();

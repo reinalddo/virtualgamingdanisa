@@ -45,6 +45,7 @@ if ($action === '') {
 $authUser = account_ensure_user_session();
 $authUserId = (int) ($authUser['id'] ?? 0);
 $authUserEmail = trim((string) ($authUser['email'] ?? ''));
+$hasPhoneColumn = users_has_phone_column_mysqli($mysqli);
 
 if ($action === 'orders') {
     $orders = [];
@@ -135,17 +136,31 @@ if ($action === 'update_profile') {
 
     if ($password !== '') {
         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $mysqli->prepare('UPDATE usuarios SET nombre = ?, email = ?, telefono = ?, username = ?, password = ? WHERE id = ? LIMIT 1');
+        $sql = $hasPhoneColumn
+            ? 'UPDATE usuarios SET nombre = ?, email = ?, telefono = ?, username = ?, password = ? WHERE id = ? LIMIT 1'
+            : 'UPDATE usuarios SET nombre = ?, email = ?, username = ?, password = ? WHERE id = ? LIMIT 1';
+        $stmt = $mysqli->prepare($sql);
         if (!$stmt) {
             account_json_error('No se pudo actualizar el usuario.', 500);
         }
-        $stmt->bind_param('sssssi', $name, $email, $phone, $email, $passwordHash, $authUserId);
+        if ($hasPhoneColumn) {
+            $stmt->bind_param('sssssi', $name, $email, $phone, $email, $passwordHash, $authUserId);
+        } else {
+            $stmt->bind_param('ssssi', $name, $email, $email, $passwordHash, $authUserId);
+        }
     } else {
-        $stmt = $mysqli->prepare('UPDATE usuarios SET nombre = ?, email = ?, telefono = ?, username = ? WHERE id = ? LIMIT 1');
+        $sql = $hasPhoneColumn
+            ? 'UPDATE usuarios SET nombre = ?, email = ?, telefono = ?, username = ? WHERE id = ? LIMIT 1'
+            : 'UPDATE usuarios SET nombre = ?, email = ?, username = ? WHERE id = ? LIMIT 1';
+        $stmt = $mysqli->prepare($sql);
         if (!$stmt) {
             account_json_error('No se pudo actualizar el usuario.', 500);
         }
-        $stmt->bind_param('ssssi', $name, $email, $phone, $email, $authUserId);
+        if ($hasPhoneColumn) {
+            $stmt->bind_param('ssssi', $name, $email, $phone, $email, $authUserId);
+        } else {
+            $stmt->bind_param('sssi', $name, $email, $email, $authUserId);
+        }
     }
 
     if (!$stmt->execute()) {
@@ -155,7 +170,7 @@ if ($action === 'update_profile') {
     $stmt->close();
 
     $_SESSION['auth_user']['email'] = $email;
-    $_SESSION['auth_user']['telefono'] = $phone;
+    $_SESSION['auth_user']['telefono'] = $hasPhoneColumn ? $phone : (string) ($_SESSION['auth_user']['telefono'] ?? '');
     $_SESSION['auth_user']['full_name'] = $name;
     $_SESSION['auth_user']['username'] = $email;
 
@@ -164,7 +179,7 @@ if ($action === 'update_profile') {
         'user' => [
             'id' => $authUserId,
             'email' => $email,
-            'phone' => $phone,
+            'phone' => $hasPhoneColumn ? $phone : (string) ($_SESSION['auth_user']['telefono'] ?? ''),
             'full_name' => $name,
             'rol' => (string) ($_SESSION['auth_user']['rol'] ?? 'usuario'),
         ],

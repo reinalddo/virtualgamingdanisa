@@ -20,7 +20,11 @@ function auth_sync_session_user(): ?array {
   }
 
   $userId = (int) $sessionUser['id'];
-  $stmt = $mysqli->prepare('SELECT id, username, nombre, email, telefono, rol FROM usuarios WHERE id = ? LIMIT 1');
+  $hasPhoneColumn = users_has_phone_column_mysqli($mysqli);
+  $selectColumns = $hasPhoneColumn
+    ? 'id, username, nombre, email, telefono, rol'
+    : 'id, username, nombre, email, rol';
+  $stmt = $mysqli->prepare('SELECT ' . $selectColumns . ' FROM usuarios WHERE id = ? LIMIT 1');
   if (!$stmt) {
     return $sessionUser;
   }

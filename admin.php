@@ -178,7 +178,10 @@ function admin_display_phone($value): string {
 }
 
 function admin_fetch_influencer_users(PDO $pdo): array {
-    $stmt = $pdo->prepare("SELECT id, nombre, email, telefono FROM usuarios WHERE rol = 'influencer' ORDER BY nombre ASC, email ASC, id ASC");
+    $selectColumns = users_has_phone_column_pdo($pdo)
+        ? 'id, nombre, email, telefono'
+        : 'id, nombre, email';
+    $stmt = $pdo->prepare("SELECT $selectColumns FROM usuarios WHERE rol = 'influencer' ORDER BY nombre ASC, email ASC, id ASC");
     $stmt->execute();
 
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
