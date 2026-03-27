@@ -490,7 +490,7 @@ switch ($seccion) {
                 $stmt_check->execute([$codigo]);
                 if ($stmt_check->fetch()) {
                     admin_set_flash('error', 'Ya existe un cupón con ese código.');
-                } elseif ($codigo && $valor_descuento > 0 && in_array($tipo_descuento, ['porcentaje', 'fijo'], true)) {
+                } elseif ($codigo && $valor_descuento >= 0 && in_array($tipo_descuento, ['porcentaje', 'fijo'], true)) {
                     $stmt = $pdo->prepare('INSERT INTO cupones (codigo, tipo_descuento, valor_descuento, fecha_expiracion, limite_usos, activo, nombre_influencer, telefono_influencer, email_influencer, comision_influencer) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                     $stmt->execute([
                         $codigo,
@@ -533,7 +533,7 @@ switch ($seccion) {
                 $stmt_check->execute([$codigo, $id]);
                 if ($stmt_check->fetch()) {
                     admin_set_flash('error', 'Ya existe un cupón con ese código.');
-                } elseif ($id && $codigo && $valor_descuento > 0 && in_array($tipo_descuento, ['porcentaje', 'fijo'], true)) {
+                } elseif ($id && $codigo && $valor_descuento >= 0 && in_array($tipo_descuento, ['porcentaje', 'fijo'], true)) {
                     $stmt = $pdo->prepare('UPDATE cupones SET codigo=?, tipo_descuento=?, valor_descuento=?, fecha_expiracion=?, limite_usos=?, activo=?, nombre_influencer=?, telefono_influencer=?, email_influencer=?, comision_influencer=? WHERE id=?');
                     $stmt->execute([
                         $codigo,
@@ -1451,7 +1451,7 @@ require_once __DIR__ . '/includes/header.php';
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" style="color:#00fff7;">Valor del descuento</label>
-                            <input type="number" name="valor_descuento" step="0.01" min="0.01" value="<?= $edit_cupon ? htmlspecialchars((string) $edit_cupon['valor_descuento']) : '' ?>" required class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                            <input type="number" name="valor_descuento" step="0.01" min="0" value="<?= $edit_cupon ? htmlspecialchars((string) $edit_cupon['valor_descuento']) : '' ?>" required class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" style="color:#00fff7;">Fecha expiración</label>
