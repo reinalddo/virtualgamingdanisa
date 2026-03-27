@@ -6,6 +6,15 @@ function admin_allowed_roles(): array {
     return ['admin', 'empleado'];
 }
 
+function admin_manageable_user_roles(): array {
+    return [
+        'usuario' => 'Usuario',
+        'empleado' => 'Empleado',
+        'influencer' => 'Influencer',
+        'admin' => 'Admin',
+    ];
+}
+
 function admin_default_section_for_role(string $role): string {
     return $role === 'empleado' ? 'pedidos' : 'dashboard';
 }
@@ -90,6 +99,166 @@ function admin_normalize_influencer_payment_filter($value): string {
 function admin_normalize_date_filter($value): ?string {
     $date = trim((string) $value);
     return preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 ? $date : null;
+}
+
+function admin_user_filters_from_input(array $input): array {
+    $role = trim((string) ($input['filtro_rol'] ?? ''));
+    if ($role !== '' && !array_key_exists($role, admin_manageable_user_roles())) {
+        $role = '';
+    }
+
+    $dateFrom = admin_normalize_date_filter($input['filtro_fecha_desde'] ?? null) ?? '';
+    $dateTo = admin_normalize_date_filter($input['filtro_fecha_hasta'] ?? null) ?? '';
+
+    if ($dateFrom !== '' && $dateTo !== '' && $dateFrom > $dateTo) {
+        [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+    }
+
+    return [
+        'nombre' => trim((string) ($input['filtro_nombre'] ?? '')),
+        'correo' => trim((string) ($input['filtro_correo'] ?? '')),
+        'rol' => $role,
+        'fecha_desde' => $dateFrom,
+        'fecha_hasta' => $dateTo,
+    ];
+}
+
+function admin_fetch_users(PDO $pdo, array $filters): array {
+    $sql = 'SELECT * FROM usuarios WHERE 1=1';
+    $params = [];
+
+    if ($filters['nombre'] !== '') {
+        $sql .= ' AND nombre LIKE ?';
+        $params[] = '%' . $filters['nombre'] . '%';
+    }
+
+    if ($filters['correo'] !== '') {
+        $sql .= ' AND email LIKE ?';
+        $params[] = '%' . $filters['correo'] . '%';
+    }
+
+    if ($filters['rol'] !== '') {
+        $sql .= ' AND rol = ?';
+        $params[] = $filters['rol'];
+    }
+
+    if ($filters['fecha_desde'] !== '') {
+        $sql .= ' AND DATE(creado_en) >= ?';
+        $params[] = $filters['fecha_desde'];
+    }
+
+    if ($filters['fecha_hasta'] !== '') {
+        $sql .= ' AND DATE(creado_en) <= ?';
+        $params[] = $filters['fecha_hasta'];
+    }
+
+    $sql .= ' ORDER BY creado_en DESC';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function admin_render_users_results(array $usuarios): string {
+    ob_start();
+
+    if (count($usuarios) === 0) {
+        echo '<div class="text-secondary">No hay usuarios registrados con esos filtros.</div>';
+        return (string) ob_get_clean();
+    }
+
+    echo '<div class="table-responsive mb-4 d-none d-md-block" style="background:#10141a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem;">';
+    echo '<table class="table align-middle" style="background:#181f2a; color:#00fff7; border-radius:12px;">';
+    echo '<thead style="background:#181f2a; color:#00fff7; border-bottom:2px solid #00fff7;">';
+    echo '<tr>';
+    echo '<th style="color:#00fff7; background:#181f2a;">ID</th>';
+    echo '<th style="color:#00fff7; background:#181f2a;">Nombre</th>';
+    echo '<th style="color:#00fff7; background:#181f2a;">Email</th>';
+    echo '<th style="color:#00fff7; background:#181f2a;">Rol</th>';
+    echo '<th style="color:#00fff7; background:#181f2a;">Creado</th>';
+    echo '<th style="color:#00fff7; background:#181f2a;">Acciones</th>';
+    echo '</tr>';
+    echo '</thead>';
+    echo '<tbody>';
+    $rowAlt = false;
+    foreach ($usuarios as $usuario) {
+        $rowStyle = $rowAlt ? 'background:#151a24;' : 'background:#181f2a;';
+        echo '<tr style="' . $rowStyle . ' color:#fff;">';
+        echo '<td style="color:#00fff7; background:#181f2a;">' . htmlspecialchars($usuario['id']) . '</td>';
+        echo '<td style="background:#181f2a;">';
+        echo '<form method="POST" class="d-flex gap-2 align-items-center">';
+        echo '<input type="hidden" name="editar_usuario" value="1">';
+        echo '<input type="hidden" name="id" value="' . htmlspecialchars($usuario['id']) . '">';
+        echo '<input type="text" name="nombre" value="' . htmlspecialchars($usuario['nombre']) . '" class="form-control form-control-sm" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+        echo '</td>';
+        echo '<td style="color:#fff; background:#181f2a;">' . htmlspecialchars($usuario['email']) . '</td>';
+        echo '<td style="background:#181f2a;">';
+        echo '<select name="rol" class="form-select form-select-sm" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+        foreach (admin_manageable_user_roles() as $rolVal => $rolTxt) {
+            $sel = $usuario['rol'] === $rolVal ? 'selected' : '';
+            echo "<option value='$rolVal' $sel>$rolTxt</option>";
+        }
+        echo '</select>';
+        echo '<button type="submit" class="btn btn-info btn-sm ms-2" style="background:#00fff7; color:#222; border:none; box-shadow:0 0 8px #00fff7;">Guardar</button>';
+        echo '</form>';
+        echo '</td>';
+        echo '<td style="color:#00fff7; background:#181f2a;">' . htmlspecialchars($usuario['creado_en']) . '</td>';
+        echo '<td style="background:#181f2a;">';
+        if ($usuario['id'] != 1) {
+            echo '<a href="?seccion=usuarios&borrar_usuario=' . urlencode((string) $usuario['id']) . '" class="btn btn-outline-danger btn-sm" style="border-color:#ff0059; color:#ff0059; background:#181f2a;" onmouseover="this.style.background=\'#ff0059\';this.style.color=\'#fff\'" onmouseout="this.style.background=\'#181f2a\';this.style.color=\'#ff0059\'" onclick="return confirm(\'¿Eliminar este usuario?\')">Eliminar</a>';
+        } else {
+            echo '<span class="text-secondary">Admin</span>';
+        }
+        echo '</td>';
+        echo '</tr>';
+        $rowAlt = !$rowAlt;
+    }
+    echo '</tbody></table>';
+    echo '</div>';
+
+    echo '<div class="d-block d-md-none">';
+    foreach ($usuarios as $usuario) {
+        echo '<div class="card bg-dark text-light mb-3 border-info shadow">';
+        echo '<div class="card-header d-flex justify-content-between align-items-center">';
+        echo '<span class="small text-info">ID: ' . htmlspecialchars($usuario['id']) . '</span>';
+        echo '<span class="small text-secondary">' . htmlspecialchars($usuario['creado_en']) . '</span>';
+        echo '</div>';
+        echo '<div class="card-body">';
+        echo '<form method="POST">';
+        echo '<input type="hidden" name="editar_usuario" value="1">';
+        echo '<input type="hidden" name="id" value="' . htmlspecialchars($usuario['id']) . '">';
+        echo '<div class="mb-2">';
+        echo '<label class="form-label text-info">Nombre</label>';
+        echo '<input type="text" name="nombre" value="' . htmlspecialchars($usuario['nombre']) . '" class="form-control">';
+        echo '</div>';
+        echo '<div class="mb-2">';
+        echo '<label class="form-label text-info">Email</label>';
+        echo '<div class="form-control bg-dark text-light">' . htmlspecialchars($usuario['email']) . '</div>';
+        echo '</div>';
+        echo '<div class="mb-2">';
+        echo '<label class="form-label text-info">Rol</label>';
+        echo '<select name="rol" class="form-select">';
+        foreach (admin_manageable_user_roles() as $rolVal => $rolTxt) {
+            $sel = $usuario['rol'] === $rolVal ? 'selected' : '';
+            echo "<option value='$rolVal' $sel>$rolTxt</option>";
+        }
+        echo '</select>';
+        echo '</div>';
+        echo '<div class="d-flex gap-2 mt-2">';
+        echo '<button type="submit" class="btn btn-info flex-fill">Guardar</button>';
+        if ($usuario['id'] != 1) {
+            echo '<a href="?seccion=usuarios&borrar_usuario=' . urlencode((string) $usuario['id']) . '" class="btn btn-danger flex-fill" onclick="return confirm(\'¿Eliminar este usuario?\')">Eliminar</a>';
+        } else {
+            echo '<span class="btn btn-secondary flex-fill disabled">Admin</span>';
+        }
+        echo '</div>';
+        echo '</form>';
+        echo '</div>';
+        echo '</div>';
+    }
+    echo '</div>';
+
+    return (string) ob_get_clean();
 }
 
 function admin_normalize_positive_page($value): int {
@@ -1074,6 +1243,18 @@ switch ($seccion) {
         break;
 }
 
+if ($seccion === 'usuarios' && admin_is_ajax_request() && isset($_GET['usuarios_live_filter'])) {
+    require_once __DIR__ . '/includes/db.php';
+
+    $userFilters = admin_user_filters_from_input($_GET);
+    $usuarios = admin_fetch_users($pdo, $userFilters);
+
+    admin_json_response([
+        'ok' => true,
+        'html' => admin_render_users_results($usuarios),
+    ]);
+}
+
 define('ADMIN_LAYOUT_EMBEDDED', true);
 
 // Header y menú igual al inicio
@@ -1125,109 +1306,117 @@ require_once __DIR__ . '/includes/header.php';
                     $id = intval($_POST['id']);
                     $nombre = trim($_POST['nombre'] ?? '');
                     $rol = $_POST['rol'] ?? 'usuario';
-                    if ($id && $nombre && in_array($rol, ['usuario', 'admin', 'empleado'], true)) {
+                    if ($id && $nombre && array_key_exists($rol, admin_manageable_user_roles())) {
                         $pdo->prepare('UPDATE usuarios SET nombre = ?, rol = ? WHERE id = ?')->execute([$nombre, $rol, $id]);
                         echo '<div class="text-green-400 mb-2">Usuario actualizado.</div>';
                     }
                 }
-                // Listado de usuarios
-                $usuarios = $pdo->query('SELECT * FROM usuarios ORDER BY creado_en DESC')->fetchAll(PDO::FETCH_ASSOC);
-                if (count($usuarios) === 0) {
-                    echo '<div class="text-secondary">No hay usuarios registrados.</div>';
-                } else {
-                    // Tabla desktop modelo gamer neon sin fondo blanco
-                    echo '<div class="table-responsive mb-4 d-none d-md-block" style="background:#10141a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem;">';
-                    echo '<table class="table align-middle" style="background:#181f2a; color:#00fff7; border-radius:12px;">';
-                    echo '<thead style="background:#181f2a; color:#00fff7; border-bottom:2px solid #00fff7;">';
-                    echo '<tr>';
-                    echo '<th style="color:#00fff7; background:#181f2a;">ID</th>';
-                    echo '<th style="color:#00fff7; background:#181f2a;">Nombre</th>';
-                    echo '<th style="color:#00fff7; background:#181f2a;">Email</th>';
-                    echo '<th style="color:#00fff7; background:#181f2a;">Rol</th>';
-                    echo '<th style="color:#00fff7; background:#181f2a;">Creado</th>';
-                    echo '<th style="color:#00fff7; background:#181f2a;">Acciones</th>';
-                    echo '</tr>';
-                    echo '</thead>';
-                    echo '<tbody>';
-                    $rowAlt = false;
-                    foreach ($usuarios as $usuario) {
-                        $rowStyle = $rowAlt ? 'background:#151a24;' : 'background:#181f2a;';
-                        echo '<tr style="' . $rowStyle . ' color:#fff;">';
-                        echo '<td style="color:#00fff7; background:#181f2a;">' . htmlspecialchars($usuario['id']) . '</td>';
-                        echo '<td style="background:#181f2a;">';
-                        echo '<form method="POST" class="d-flex gap-2 align-items-center">';
-                        echo '<input type="hidden" name="editar_usuario" value="1">';
-                        echo '<input type="hidden" name="id" value="' . htmlspecialchars($usuario['id']) . '">';
-                        echo '<input type="text" name="nombre" value="' . htmlspecialchars($usuario['nombre']) . '" class="form-control form-control-sm" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
-                        echo '</td>';
-                        echo '<td style="color:#fff; background:#181f2a;">' . htmlspecialchars($usuario['email']) . '</td>';
-                        echo '<td style="background:#181f2a;">';
-                        echo '<select name="rol" class="form-select form-select-sm" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
-                        foreach (["usuario"=>"Usuario","empleado"=>"Empleado","admin"=>"Admin"] as $rolVal=>$rolTxt) {
-                            $sel = $usuario['rol']===$rolVal ? 'selected' : '';
-                            echo "<option value='$rolVal' $sel>$rolTxt</option>";
-                        }
-                        echo '</select>';
-                        echo '<button type="submit" class="btn btn-info btn-sm ms-2" style="background:#00fff7; color:#222; border:none; box-shadow:0 0 8px #00fff7;">Guardar</button>';
-                        echo '</form>';
-                        echo '</td>';
-                        echo '<td style="color:#00fff7; background:#181f2a;">' . htmlspecialchars($usuario['creado_en']) . '</td>';
-                        echo '<td style="background:#181f2a;">';
-                        if ($usuario['id'] != 1) {
-                            echo '<a href="?seccion=usuarios&borrar_usuario=' . $usuario['id'] . '" class="btn btn-outline-danger btn-sm" style="border-color:#ff0059; color:#ff0059; background:#181f2a;" onmouseover="this.style.background=\'#ff0059\';this.style.color=\'#fff\'" onmouseout="this.style.background=\'#181f2a\';this.style.color=\'#ff0059\'" onclick="return confirm(\'¿Eliminar este usuario?\')">Eliminar</a>';
-                        } else {
-                            echo '<span class="text-secondary">Admin</span>';
-                        }
-                        echo '</td>';
-                        echo '</tr>';
-                        $rowAlt = !$rowAlt;
-                    }
-                    echo '</tbody></table>';
-                    echo '</div>';
+                        $userFilters = admin_user_filters_from_input($_GET);
+                        $usuarios = admin_fetch_users($pdo, $userFilters);
 
-                    // Cards solo en móvil
-                    echo '<div class="d-block d-md-none">';
-                    foreach ($usuarios as $usuario) {
-                        echo '<div class="card bg-dark text-light mb-3 border-info shadow">';
-                        echo '<div class="card-header d-flex justify-content-between align-items-center">';
-                        echo '<span class="small text-info">ID: ' . htmlspecialchars($usuario['id']) . '</span>';
-                        echo '<span class="small text-secondary">' . htmlspecialchars($usuario['creado_en']) . '</span>';
-                        echo '</div>';
-                        echo '<div class="card-body">';
-                        echo '<form method="POST">';
-                        echo '<input type="hidden" name="editar_usuario" value="1">';
-                        echo '<input type="hidden" name="id" value="' . htmlspecialchars($usuario['id']) . '">';
-                        echo '<div class="mb-2">';
-                        echo '<label class="form-label text-info">Nombre</label>';
-                        echo '<input type="text" name="nombre" value="' . htmlspecialchars($usuario['nombre']) . '" class="form-control">';
-                        echo '</div>';
-                        echo '<div class="mb-2">';
-                        echo '<label class="form-label text-info">Email</label>';
-                        echo '<div class="form-control bg-dark text-light">' . htmlspecialchars($usuario['email']) . '</div>';
-                        echo '</div>';
-                        echo '<div class="mb-2">';
-                        echo '<label class="form-label text-info">Rol</label>';
-                        echo '<select name="rol" class="form-select">';
-                        foreach (["usuario"=>"Usuario","empleado"=>"Empleado","admin"=>"Admin"] as $rolVal=>$rolTxt) {
-                            $sel = $usuario['rol']===$rolVal ? 'selected' : '';
-                            echo "<option value='$rolVal' $sel>$rolTxt</option>";
-                        }
-                        echo '</select>';
-                        echo '</div>';
-                        echo '<div class="d-flex gap-2 mt-2">';
-                        echo '<button type="submit" class="btn btn-info flex-fill">Guardar</button>';
-                        if ($usuario['id'] != 1) {
-                            echo '<a href="?seccion=usuarios&borrar_usuario=' . $usuario['id'] . '" class="btn btn-danger flex-fill" onclick="return confirm(\'¿Eliminar este usuario?\')">Eliminar</a>';
-                        } else {
-                            echo '<span class="btn btn-secondary flex-fill disabled">Admin</span>';
-                        }
-                        echo '</div>';
-                        echo '</form>';
-                        echo '</div>';
-                        echo '</div>';
-                    }
-                    echo '</div>';
+                                echo '<form method="GET" action="/admin/usuarios" class="row g-3 mb-4 align-items-end" data-user-filter-form="1" style="background:#10141a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem;">';
+                                echo '<input type="hidden" name="seccion" value="usuarios">';
+                                echo '<div class="col-md-3">';
+                                echo '<label class="form-label" style="color:#00fff7;">Nombre</label>';
+                                echo '<input type="text" name="filtro_nombre" value="' . htmlspecialchars($userFilters['nombre']) . '" class="form-control" placeholder="Buscar por nombre" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                                echo '</div>';
+                                echo '<div class="col-md-3">';
+                                echo '<label class="form-label" style="color:#00fff7;">Correo</label>';
+                                echo '<input type="text" name="filtro_correo" value="' . htmlspecialchars($userFilters['correo']) . '" class="form-control" placeholder="Buscar por correo" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                                echo '</div>';
+                                echo '<div class="col-md-2">';
+                                echo '<label class="form-label" style="color:#00fff7;">Rol</label>';
+                                echo '<select name="filtro_rol" class="form-select" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                                echo '<option value="">Todos</option>';
+                                foreach (admin_manageable_user_roles() as $rolVal => $rolTxt) {
+                                    $selected = $userFilters['rol'] === $rolVal ? 'selected' : '';
+                                    echo "<option value='$rolVal' $selected>$rolTxt</option>";
+                                }
+                                echo '</select>';
+                                echo '</div>';
+                                echo '<div class="col-md-2">';
+                                echo '<label class="form-label" style="color:#00fff7;">Desde</label>';
+                                echo '<input type="date" name="filtro_fecha_desde" value="' . htmlspecialchars($userFilters['fecha_desde']) . '" class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                                echo '</div>';
+                                echo '<div class="col-md-2">';
+                                echo '<label class="form-label" style="color:#00fff7;">Hasta</label>';
+                                echo '<input type="date" name="filtro_fecha_hasta" value="' . htmlspecialchars($userFilters['fecha_hasta']) . '" class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">';
+                                echo '</div>';
+                                echo '<div class="col-12 d-flex justify-content-end">';
+                                echo '<button type="button" class="btn btn-outline-info" data-user-filter-clear="1" style="border-color:#00fff7; color:#00fff7;">Limpiar filtros</button>';
+                                echo '</div>';
+                                echo '</form>';
+
+                                echo '<div data-user-results="1">' . admin_render_users_results($usuarios) . '</div>';
+                                echo '<script>
+(() => {
+    const form = document.querySelector("[data-user-filter-form=\"1\"]");
+    const results = document.querySelector("[data-user-results=\"1\"]");
+    const clearButton = document.querySelector("[data-user-filter-clear=\"1\"]");
+    if (!form || !results) {
+        return;
+    }
+
+    let debounceTimer = null;
+    let requestController = null;
+
+    const runFilter = () => {
+        window.clearTimeout(debounceTimer);
+        debounceTimer = window.setTimeout(async () => {
+            const formData = new FormData(form);
+            formData.set("usuarios_live_filter", "1");
+            formData.set("ajax", "1");
+            const params = new URLSearchParams(formData);
+            const requestUrl = `${form.action}?${params.toString()}`;
+            const visibleParams = new URLSearchParams(new FormData(form));
+            const visibleUrl = visibleParams.toString() ? `${form.action}?${visibleParams.toString()}` : form.action;
+
+            if (requestController) {
+                requestController.abort();
+            }
+
+            requestController = new AbortController();
+
+            try {
+                const response = await fetch(requestUrl, {
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Accept": "application/json, text/plain, */*"
+                    },
+                    signal: requestController.signal
+                });
+                const payload = await response.json();
+                if (!response.ok || !payload.ok) {
+                    throw new Error(payload.message || "No se pudo filtrar los usuarios.");
                 }
+                results.innerHTML = payload.html || "";
+                window.history.replaceState(null, "", visibleUrl);
+            } catch (error) {
+                if (error.name !== "AbortError") {
+                    console.error(error);
+                }
+            }
+        }, 250);
+    };
+
+    form.querySelectorAll("input, select").forEach((field) => {
+        const eventName = field.tagName === "SELECT" || field.type === "date" ? "change" : "input";
+        field.addEventListener(eventName, runFilter);
+    });
+
+    form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        runFilter();
+    });
+
+    if (clearButton) {
+        clearButton.addEventListener("click", () => {
+            form.reset();
+            runFilter();
+        });
+    }
+})();
+</script>';
                 break;
             case 'juegos':
                 echo '<h2 class="text-2xl font-semibold mb-8 text-cyan-300">Gestión de Juegos</h2>';
@@ -1523,7 +1712,10 @@ require_once __DIR__ . '/includes/header.php';
                                             <div><?= htmlspecialchars((string) $c['tipo_descuento']) ?></div>
                                             <div><?= htmlspecialchars((string) $c['valor_descuento']) ?></div>
                                         </td>
-                                        <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars(admin_display_value($c['nombre_influencer'] ?? null)) ?></td>
+                                        <td style="background:#181f2a; color:#b2f6ff;">
+                                            <div><?= htmlspecialchars(admin_display_value($c['nombre_influencer'] ?? null)) ?></div>
+                                            <div style="color:#8bd3ff; font-size:0.9em;"><?= htmlspecialchars(admin_display_value($c['email_influencer'] ?? null)) ?></div>
+                                        </td>
                                         <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars(admin_display_value(isset($c['comision_influencer']) && (float) $c['comision_influencer'] > 0 ? admin_format_money($c['comision_influencer']) . '%' : null)) ?></td>
                                         <td style="background:#181f2a; color:#b2f6ff;"><?= htmlspecialchars((string) ($c['usos_actuales'] ?? 0)) ?> / <?= htmlspecialchars(admin_display_value($c['limite_usos'] ?? null, '∞')) ?></td>
                                         <td style="background:#181f2a; color:#b2f6ff;"><?= !empty($c['activo']) ? 'Sí' : 'No' ?></td>
@@ -1543,7 +1735,10 @@ require_once __DIR__ . '/includes/header.php';
                             <div style="background:#181f2a; border-radius:16px; border:2px solid #00fff7; box-shadow:0 0 24px #00fff733; padding:1rem; color:#00fff7; margin-bottom:1.2rem;">
                                 <div style="font-weight:bold; font-size:1.15em; color:#00fff7;"><?= htmlspecialchars((string) $c['codigo']) ?></div>
                                 <div style="margin-top:0.45rem; color:#b2f6ff;">Tipo: <?= htmlspecialchars((string) $c['tipo_descuento']) ?> | Valor: <?= htmlspecialchars((string) $c['valor_descuento']) ?></div>
-                                <div style="margin-top:0.45rem; color:#b2f6ff;">Influencer: <?= htmlspecialchars(admin_display_value($c['nombre_influencer'] ?? null)) ?></div>
+                                <div style="margin-top:0.45rem; color:#b2f6ff;">
+                                    <div>Influencer: <?= htmlspecialchars(admin_display_value($c['nombre_influencer'] ?? null)) ?></div>
+                                    <div style="color:#8bd3ff; font-size:0.9em;"><?= htmlspecialchars(admin_display_value($c['email_influencer'] ?? null)) ?></div>
+                                </div>
                                 <div style="margin-top:0.45rem; color:#b2f6ff;">Comisión: <?= htmlspecialchars(admin_display_value(isset($c['comision_influencer']) && (float) $c['comision_influencer'] > 0 ? admin_format_money($c['comision_influencer']) . '%' : null)) ?></div>
                                 <div style="margin-top:0.45rem; color:#b2f6ff;">Usos: <?= htmlspecialchars((string) ($c['usos_actuales'] ?? 0)) ?> / <?= htmlspecialchars(admin_display_value($c['limite_usos'] ?? null, '∞')) ?></div>
                                 <div style="margin-top:0.45rem; color:#b2f6ff;">Activo: <?= !empty($c['activo']) ? 'Sí' : 'No' ?></div>
