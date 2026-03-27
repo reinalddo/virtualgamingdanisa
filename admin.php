@@ -576,7 +576,7 @@ switch ($seccion) {
             $id = intval($_POST['id']);
             $nombre = trim($_POST['nombre'] ?? '');
             $rol = $_POST['rol'] ?? 'usuario';
-            if ($id && $nombre && in_array($rol, ['usuario', 'admin', 'empleado'], true)) {
+            if ($id && $nombre && array_key_exists($rol, admin_manageable_user_roles())) {
                 $pdo->prepare('UPDATE usuarios SET nombre = ?, rol = ? WHERE id = ?')->execute([$nombre, $rol, $id]);
                 admin_set_flash('success', 'Usuario actualizado.');
             } else {
