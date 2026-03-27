@@ -66,6 +66,13 @@ function admin_redirect(string $section, array $query = []): void {
     exit();
 }
 
+function admin_json_response(array $payload, int $statusCode = 200): void {
+    http_response_code($statusCode);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit();
+}
+
 function admin_display_value($value, string $fallback = '—'): string {
     $text = trim((string) $value);
     return $text !== '' ? $text : $fallback;
@@ -131,6 +138,10 @@ function admin_build_url(string $path, array $query = []): string {
 }
 
 function admin_is_ajax_request(): bool {
+    if (isset($_REQUEST['ajax']) && (string) $_REQUEST['ajax'] === '1') {
+        return true;
+    }
+
     $requestedWith = strtolower(trim((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')));
     $accept = strtolower(trim((string) ($_SERVER['HTTP_ACCEPT'] ?? '')));
 
@@ -710,6 +721,23 @@ switch ($seccion) {
                 admin_set_flash('success', 'Elemento de galería eliminado.');
             } else {
                 admin_set_flash('error', 'No se pudo eliminar el elemento de galería.');
+            }
+            admin_redirect('configuracion', ['tab' => 'galeria']);
+        }
+
+        if ($activeTab === 'galeria' && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['gallery_order_update'], $_POST['gallery_order_id'], $_POST['gallery_order'])) {
+            $galleryId = intval($_POST['gallery_order_id']);
+            $galleryOrder = max(1, intval($_POST['gallery_order']));
+            if ($galleryId > 0 && home_gallery_update_order($galleryId, $galleryOrder)) {
+                if (admin_is_ajax_request()) {
+                    admin_json_response(['ok' => true, 'id' => $galleryId, 'orden' => $galleryOrder]);
+                }
+                admin_set_flash('success', 'Orden de galería actualizado.');
+            } else {
+                if (admin_is_ajax_request()) {
+                    admin_json_response(['ok' => false, 'message' => 'No se pudo actualizar el orden de la galería.'], 422);
+                }
+                admin_set_flash('error', 'No se pudo actualizar el orden de la galería.');
             }
             admin_redirect('configuracion', ['tab' => 'galeria']);
         }
@@ -2463,7 +2491,7 @@ require_once __DIR__ . '/includes/header.php';
                 method: 'POST',
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',
-                    'Accept': 'application/json'
+                    'Accept': 'application/json, text/plain, */*'
                 },
                 body: formData
             });
@@ -2590,7 +2618,7 @@ require_once __DIR__ . '/includes/header.php';
                     method: 'POST',
                     headers: {
                         'X-Requested-With': 'XMLHttpRequest',
-                        'Accept': 'application/json'
+                        'Accept': 'application/json, text/plain, */*'
                     },
                     body: formData
                 });

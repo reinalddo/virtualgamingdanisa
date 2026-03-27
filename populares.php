@@ -6,7 +6,7 @@ currency_ensure_schema();
 $pageTitle = "TVirtualGaming | Juegos populares";
 include __DIR__ . "/includes/header.php";
 
-$res = $mysqli->query("SELECT * FROM juegos WHERE popular=1 ORDER BY id DESC");
+$res = $mysqli->query("SELECT * FROM juegos WHERE popular=1 AND COALESCE(activo, 1) = 1 ORDER BY CASE WHEN orden IS NULL THEN 1 ELSE 0 END, orden ASC, id ASC");
 $popularGames = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
 ?>
 
@@ -32,7 +32,7 @@ $popularGames = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
   <div class="mt-4 row row-cols-2 row-cols-sm-3 row-cols-lg-4 g-3">
     <?php foreach ($popularGames as $game): ?>
       <?php
-        $resPaqCount = $mysqli->query("SELECT COUNT(*) as total FROM juego_paquetes WHERE juego_id=" . intval($game['id']));
+        $resPaqCount = $mysqli->query("SELECT COUNT(*) as total FROM juego_paquetes WHERE juego_id=" . intval($game['id']) . " AND COALESCE(activo, 1) = 1");
         $paqCount = $resPaqCount ? $resPaqCount->fetch_assoc()['total'] : 0;
         if ($paqCount == 0) continue;
       ?>
@@ -53,7 +53,7 @@ $popularGames = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
             <?php
               $min_precio_bs = null;
               if (!empty($game['moneda_fija_id'])) {
-                $resPaq = $mysqli->query("SELECT precio FROM juego_paquetes WHERE juego_id=" . intval($game['id']) . " ORDER BY precio ASC LIMIT 1");
+                $resPaq = $mysqli->query("SELECT precio FROM juego_paquetes WHERE juego_id=" . intval($game['id']) . " AND COALESCE(activo, 1) = 1 ORDER BY CASE WHEN orden IS NULL THEN 1 ELSE 0 END, orden ASC, id ASC LIMIT 1");
                 $paq = $resPaq ? $resPaq->fetch_assoc() : null;
                 if ($paq) {
                   $resMon = $mysqli->query("SELECT tasa, clave, mostrar_decimales FROM monedas WHERE id=" . intval($game['moneda_fija_id']) . " LIMIT 1");

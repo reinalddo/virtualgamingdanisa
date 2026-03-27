@@ -3,6 +3,24 @@
 require_once '../includes/db_connect.php';
 require_once '../includes/recargas_api.php';
 
+function admin_games_is_ajax_request(): bool {
+    if (isset($_REQUEST['ajax']) && (string) $_REQUEST['ajax'] === '1') {
+        return true;
+    }
+
+    $requestedWith = strtolower(trim((string) ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')));
+    $accept = strtolower(trim((string) ($_SERVER['HTTP_ACCEPT'] ?? '')));
+
+    return $requestedWith === 'xmlhttprequest' || str_contains($accept, 'application/json');
+}
+
+function admin_games_json_response(array $payload, int $statusCode = 200): void {
+    http_response_code($statusCode);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 function ensure_juegos_api_free_fire_column(mysqli $mysqli): void {
     $result = $mysqli->query("SHOW COLUMNS FROM juegos LIKE 'api_free_fire'");
     if (!($result instanceof mysqli_result) || $result->num_rows === 0) {
@@ -24,9 +42,23 @@ function ensure_juegos_categoria_api_column(mysqli $mysqli): void {
     }
 }
 
+function ensure_juegos_orden_column(mysqli $mysqli): void {
+    $result = $mysqli->query("SHOW COLUMNS FROM juegos LIKE 'orden'");
+    if (!($result instanceof mysqli_result) || $result->num_rows === 0) {
+        $mysqli->query("ALTER TABLE juegos ADD COLUMN orden INT NULL AFTER categoria_api");
+    }
+}
+
+function admin_game_next_order(mysqli $mysqli): int {
+    $result = $mysqli->query("SELECT COALESCE(MAX(orden), 0) + 1 AS next_order FROM juegos");
+    $row = $result instanceof mysqli_result ? $result->fetch_assoc() : null;
+    return max(1, (int) ($row['next_order'] ?? 1));
+}
+
 ensure_juegos_api_free_fire_column($mysqli);
 ensure_juegos_activo_column($mysqli);
 ensure_juegos_categoria_api_column($mysqli);
+ensure_juegos_orden_column($mysqli);
 
 $apiCategories = [];
 $apiCategoriesError = null;
@@ -45,6 +77,25 @@ if (isset($_GET['toggle_activo'])) {
         $stmtToggle->bind_param('i', $toggleId);
         $stmtToggle->execute();
         $stmtToggle->close();
+        if (admin_games_is_ajax_request()) {
+            admin_games_json_response(['ok' => true, 'id' => $toggleId]);
+        }
+    }
+    header('Location: /admin/juegos');
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_orden_juego'], $_POST['juego_id'], $_POST['orden'])) {
+    $gameId = intval($_POST['juego_id']);
+    $order = max(1, intval($_POST['orden']));
+    if ($gameId > 0) {
+        $stmtOrder = $mysqli->prepare("UPDATE juegos SET orden = ? WHERE id = ?");
+        $stmtOrder->bind_param('ii', $order, $gameId);
+        $stmtOrder->execute();
+        $stmtOrder->close();
+        if (admin_games_is_ajax_request()) {
+            admin_games_json_response(['ok' => true, 'id' => $gameId, 'orden' => $order]);
+        }
     }
     header('Location: /admin/juegos');
     exit;
@@ -154,6 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nombre'], $_POST['des
     $categoria_api = trim((string) ($_POST['categoria_api'] ?? ''));
     $api_free_fire = $categoria_api !== '' ? 1 : 0;
     $activo = isset($_POST['activo']) ? 1 : 0;
+    $orden = admin_game_next_order($mysqli);
     $imagen = null;
     $imagen_paquete = null;
     if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] === UPLOAD_ERR_OK) {
@@ -182,8 +234,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nombre'], $_POST['des
             }
         }
     }
-    $stmt = $mysqli->prepare("INSERT INTO juegos (nombre, imagen, imagen_paquete, descripcion, moneda_fija_id, popular, api_free_fire, categoria_api, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param('ssssiiisi', $nombre, $imagen, $imagen_paquete, $descripcion, $moneda_fija_id, $popular, $api_free_fire, $categoria_api, $activo);
+    $stmt = $mysqli->prepare("INSERT INTO juegos (nombre, imagen, imagen_paquete, descripcion, moneda_fija_id, popular, api_free_fire, categoria_api, activo, orden) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param('ssssiiisii', $nombre, $imagen, $imagen_paquete, $descripcion, $moneda_fija_id, $popular, $api_free_fire, $categoria_api, $activo, $orden);
     $stmt->execute();
     $juego_id = $mysqli->insert_id;
     // Características seleccionadas del select múltiple
@@ -222,7 +274,7 @@ while ($row = $rescar->fetch_assoc()) {
     $caracteristicas_unicas[] = $row['caracteristica'];
 }
 // Listar juegos existentes
-$resj = $mysqli->query("SELECT * FROM juegos ORDER BY id DESC");
+$resj = $mysqli->query("SELECT * FROM juegos ORDER BY CASE WHEN orden IS NULL THEN 1 ELSE 0 END, orden ASC, id ASC");
 $juegos = $resj->fetch_all(MYSQLI_ASSOC);
 $paquetesPorJuego = [];
 $resPaquetes = $mysqli->query("SELECT juego_id, COUNT(*) AS total FROM juego_paquetes GROUP BY juego_id");
@@ -388,6 +440,7 @@ if ($resPaquetes instanceof mysqli_result) {
                 <tr>
                     <th style="color:#00fff7; background:#181f2a;">Imagen</th>
                     <th style="color:#00fff7; background:#181f2a;">Nombre</th>
+                    <th style="color:#00fff7; background:#181f2a;">Orden</th>
                     <th style="color:#00fff7; background:#181f2a;">Popular</th>
                     <th style="color:#00fff7; background:#181f2a;">Activo</th>
                     <th style="color:#00fff7; background:#181f2a;">Imagen Paquete</th>
@@ -418,6 +471,14 @@ if ($resPaquetes instanceof mysqli_result) {
                         <?php endif; ?>
                     </td>
                     <td class="text-center" style="background:#181f2a;">
+                        <form method="post" action="/admin/juegos" class="d-inline-flex align-items-center gap-2 m-0 js-ajax-order-form">
+                            <input type="hidden" name="ajax" value="1">
+                            <input type="hidden" name="update_orden_juego" value="1">
+                            <input type="hidden" name="juego_id" value="<?= (int) $j['id'] ?>">
+                            <input type="number" name="orden" min="1" value="<?= max(1, (int) ($j['orden'] ?? 0)) ?>" class="form-control form-control-sm text-center js-ajax-order-input" style="width:84px;background:#222c3a;color:#00fff7;border:1px solid #00fff7;">
+                        </form>
+                    </td>
+                    <td class="text-center" style="background:#181f2a;">
                         <?php if (!empty($j['popular'])): ?>
                                 <span title="Popular" style="color:#00fff7; font-size:1.2em;">★</span>
                             <?php else: ?>
@@ -425,10 +486,11 @@ if ($resPaquetes instanceof mysqli_result) {
                             <?php endif; ?>
                         </td>
                         <td class="text-center" style="background:#181f2a;">
-                            <form method="get" action="/admin/juegos" class="m-0 d-inline-block">
+                            <form method="get" action="/admin/juegos" class="m-0 d-inline-block js-ajax-toggle-form">
+                                <input type="hidden" name="ajax" value="1">
                                 <input type="hidden" name="toggle_activo" value="<?= (int) $j['id'] ?>">
                                 <div class="form-check form-switch d-inline-flex justify-content-center mb-0">
-                                    <input class="form-check-input" type="checkbox" <?= !isset($j['activo']) || !empty($j['activo']) ? 'checked' : '' ?> onchange="this.form.submit()" aria-label="Activar o desactivar juego <?= htmlspecialchars($j['nombre'], ENT_QUOTES, 'UTF-8') ?>">
+                                    <input class="form-check-input js-ajax-toggle-input" type="checkbox" <?= !isset($j['activo']) || !empty($j['activo']) ? 'checked' : '' ?> aria-label="Activar o desactivar juego <?= htmlspecialchars($j['nombre'], ENT_QUOTES, 'UTF-8') ?>">
                                 </div>
                             </form>
                         </td>
@@ -495,12 +557,14 @@ if ($resPaquetes instanceof mysqli_result) {
                             <?php elseif (!empty($j['api_free_fire'])): ?>
                                 <div class="mt-1"><span style="display:inline-flex;align-items:center;gap:0.35rem;padding:0.2rem 0.55rem;border-radius:999px;border:1px solid rgba(245,158,11,0.7);background:rgba(245,158,11,0.12);color:#fcd34d;font-weight:700;font-size:0.78rem;letter-spacing:0.04em;">Legacy API</span></div>
                             <?php endif; ?>
+                            <div style="font-size:0.85rem; color:#b2f6ff;">Orden: <?= max(1, (int) ($j['orden'] ?? 0)) ?></div>
                             <div class="text-muted" style="font-size:0.85rem; color:#b2f6ff;">ID: <?= $j['id'] ?></div>
                             <div class="mt-2">
-                                <form method="get" action="/admin/juegos" class="m-0 d-inline-flex align-items-center gap-2">
+                                <form method="get" action="/admin/juegos" class="m-0 d-inline-flex align-items-center gap-2 js-ajax-toggle-form">
+                                    <input type="hidden" name="ajax" value="1">
                                     <input type="hidden" name="toggle_activo" value="<?= (int) $j['id'] ?>">
                                     <div class="form-check form-switch mb-0">
-                                        <input class="form-check-input" type="checkbox" <?= !isset($j['activo']) || !empty($j['activo']) ? 'checked' : '' ?> onchange="this.form.submit()" aria-label="Activar o desactivar juego <?= htmlspecialchars($j['nombre'], ENT_QUOTES, 'UTF-8') ?>">
+                                        <input class="form-check-input js-ajax-toggle-input" type="checkbox" <?= !isset($j['activo']) || !empty($j['activo']) ? 'checked' : '' ?> aria-label="Activar o desactivar juego <?= htmlspecialchars($j['nombre'], ENT_QUOTES, 'UTF-8') ?>">
                                     </div>
                                     <span style="color:#b2f6ff;font-size:0.85rem;"><?= !isset($j['activo']) || !empty($j['activo']) ? 'Activo' : 'Inactivo' ?></span>
                                 </form>
@@ -523,6 +587,13 @@ if ($resPaquetes instanceof mysqli_result) {
                         while ($row = $carRes->fetch_assoc()) $cars[] = $row['caracteristica'];
                         echo $cars ? '<span style="color:#b2f6ff;">' . htmlspecialchars(implode(', ', $cars)) . '</span>' : '<span class="fst-italic" style="color:#b2f6ff;">Ninguna</span>';
                     ?></div>
+                    <form method="post" action="/admin/juegos" class="mt-3 d-flex align-items-center gap-2 flex-wrap js-ajax-order-form">
+                        <input type="hidden" name="ajax" value="1">
+                        <input type="hidden" name="update_orden_juego" value="1">
+                        <input type="hidden" name="juego_id" value="<?= (int) $j['id'] ?>">
+                        <label class="small" style="color:#b2f6ff;">Orden</label>
+                        <input type="number" name="orden" min="1" value="<?= max(1, (int) ($j['orden'] ?? 0)) ?>" class="form-control form-control-sm js-ajax-order-input" style="width:96px;background:#222c3a;color:#22d3ee;border:1px solid #22d3ee;">
+                    </form>
                     <div class="mt-3 d-flex gap-3 flex-wrap">
                         <a href="/admin/juegos?editar=<?= $j['id'] ?>" style="color:#22d3ee; text-decoration:underline; font-weight:bold;">Editar</a>
                         <a href="/admin/paquetes/<?= $j['id'] ?>" style="color:#22d3ee; text-decoration:underline; font-weight:bold;">Paquetes</a>
@@ -698,5 +769,88 @@ function previewImagenJuego(event) {
         img.style.display = 'none';
     }
 }
+
+async function submitAjaxAdminForm(form, requestData = null) {
+    const method = (form.method || 'POST').toUpperCase();
+    const formData = requestData instanceof FormData ? requestData : new FormData(form);
+    const headers = {
+        'X-Requested-With': 'XMLHttpRequest',
+        'Accept': 'application/json, text/plain, */*'
+    };
+    let response;
+    if (method === 'GET') {
+        const params = new URLSearchParams(formData);
+        const separator = (form.action || window.location.href).includes('?') ? '&' : '?';
+        response = await fetch((form.action || window.location.href) + separator + params.toString(), {
+            method,
+            headers,
+            cache: 'no-store'
+        });
+    } else {
+        response = await fetch(form.action || window.location.href, {
+            method,
+            headers,
+            body: formData
+        });
+    }
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload || payload.ok !== true) {
+        throw new Error(payload && payload.message ? payload.message : 'No se pudo guardar el cambio.');
+    }
+    return payload;
+}
+
+document.querySelectorAll('.js-ajax-toggle-form').forEach((form) => {
+    const input = form.querySelector('.js-ajax-toggle-input');
+    if (!input) {
+        return;
+    }
+    input.addEventListener('change', async () => {
+        if (input.dataset.busy === '1') {
+            return;
+        }
+
+        const requestData = new FormData(form);
+        input.dataset.busy = '1';
+        input.disabled = true;
+        try {
+            await submitAjaxAdminForm(form, requestData);
+        } catch (error) {
+            input.checked = !input.checked;
+            window.alert(error.message);
+        } finally {
+            input.disabled = false;
+            input.dataset.busy = '0';
+        }
+    });
+});
+
+document.querySelectorAll('.js-ajax-order-form').forEach((form) => {
+    const input = form.querySelector('.js-ajax-order-input');
+    if (!input) {
+        return;
+    }
+    input.dataset.lastValue = input.value;
+    input.addEventListener('change', async () => {
+        const normalized = String(Math.max(1, parseInt(input.value || '1', 10) || 1));
+        if (normalized === input.dataset.lastValue) {
+            input.value = normalized;
+            return;
+        }
+        input.value = normalized;
+        const requestData = new FormData(form);
+        input.readOnly = true;
+        try {
+            const payload = await submitAjaxAdminForm(form, requestData);
+            input.dataset.lastValue = String(payload.orden || normalized);
+            input.value = input.dataset.lastValue;
+        } catch (error) {
+            input.value = input.dataset.lastValue || '1';
+            window.alert(error.message);
+        } finally {
+            input.readOnly = false;
+        }
+    });
+});
 </script>
 <?php include '../includes/footer.php'; ?>

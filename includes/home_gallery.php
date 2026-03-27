@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS home_gallery (
     imagen VARCHAR(255) NOT NULL,
     url VARCHAR(500) DEFAULT NULL,
     abrir_nueva_pestana TINYINT(1) NOT NULL DEFAULT 0,
+    orden INT NULL,
     destacado TINYINT(1) NOT NULL DEFAULT 0,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -35,7 +36,20 @@ CREATE TABLE IF NOT EXISTS home_gallery (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 SQL;
     $mysqli->query($sql);
+    $columnResult = $mysqli->query("SHOW COLUMNS FROM home_gallery LIKE 'orden'");
+    if (!($columnResult instanceof mysqli_result) || $columnResult->num_rows === 0) {
+        $mysqli->query("ALTER TABLE home_gallery ADD COLUMN orden INT NULL AFTER abrir_nueva_pestana");
+    }
     $initialized = true;
+}
+
+function home_gallery_next_order(): int {
+    home_gallery_ensure_table();
+
+    $mysqli = home_gallery_db();
+    $res = $mysqli->query('SELECT COALESCE(MAX(orden), 0) + 1 AS next_order FROM home_gallery');
+    $row = $res instanceof mysqli_result ? $res->fetch_assoc() : null;
+    return max(1, (int) ($row['next_order'] ?? 1));
 }
 
 function home_gallery_all(): array {
@@ -43,11 +57,12 @@ function home_gallery_all(): array {
 
     $mysqli = home_gallery_db();
     $items = [];
-    $res = $mysqli->query('SELECT * FROM home_gallery ORDER BY destacado DESC, id DESC');
+    $res = $mysqli->query('SELECT * FROM home_gallery ORDER BY CASE WHEN orden IS NULL THEN 1 ELSE 0 END, orden ASC, destacado DESC, id ASC');
     if ($res instanceof mysqli_result) {
         while ($row = $res->fetch_assoc()) {
             $row['id'] = (int) $row['id'];
             $row['abrir_nueva_pestana'] = (int) $row['abrir_nueva_pestana'];
+            $row['orden'] = isset($row['orden']) ? (int) $row['orden'] : null;
             $row['destacado'] = (int) $row['destacado'];
             $items[] = $row;
         }
@@ -77,6 +92,7 @@ function home_gallery_find(int $id): ?array {
 
     $item['id'] = (int) $item['id'];
     $item['abrir_nueva_pestana'] = (int) $item['abrir_nueva_pestana'];
+    $item['orden'] = isset($item['orden']) ? (int) $item['orden'] : null;
     $item['destacado'] = (int) $item['destacado'];
 
     return $item;
@@ -86,7 +102,7 @@ function home_gallery_featured(): ?array {
     home_gallery_ensure_table();
 
     $mysqli = home_gallery_db();
-    $res = $mysqli->query('SELECT * FROM home_gallery WHERE destacado = 1 ORDER BY id DESC LIMIT 1');
+    $res = $mysqli->query('SELECT * FROM home_gallery WHERE destacado = 1 ORDER BY CASE WHEN orden IS NULL THEN 1 ELSE 0 END, orden ASC, id ASC LIMIT 1');
     $item = $res instanceof mysqli_result ? $res->fetch_assoc() : null;
 
     if (!$item) {
@@ -95,6 +111,7 @@ function home_gallery_featured(): ?array {
 
     $item['id'] = (int) $item['id'];
     $item['abrir_nueva_pestana'] = (int) $item['abrir_nueva_pestana'];
+    $item['orden'] = isset($item['orden']) ? (int) $item['orden'] : null;
     $item['destacado'] = (int) $item['destacado'];
 
     return $item;
@@ -171,8 +188,10 @@ function home_gallery_validate_form(array $input, array $files, ?array $existing
     $descripcion2 = trim((string) ($input['descripcion2'] ?? ''));
     $url = trim((string) ($input['url'] ?? ''));
     $abrirNuevaPestana = isset($input['abrir_nueva_pestana']) && (string) $input['abrir_nueva_pestana'] === '1' ? 1 : 0;
+    $ordenInput = trim((string) ($input['orden'] ?? ''));
     $destacado = isset($input['destacado']) ? 1 : 0;
     $errores = [];
+    $orden = $ordenInput !== '' ? max(1, (int) $ordenInput) : (isset($existing['orden']) && (int) $existing['orden'] > 0 ? (int) $existing['orden'] : home_gallery_next_order());
 
     if ($url !== '' && filter_var($url, FILTER_VALIDATE_URL) === false) {
         $errores[] = 'La URL debe ser válida.';
@@ -205,37 +224,40 @@ function home_gallery_validate_form(array $input, array $files, ?array $existing
             'imagen' => $nuevaImagen,
             'url' => $url,
             'abrir_nueva_pestana' => $abrirNuevaPestana,
+            'orden' => $orden,
             'destacado' => $destacado,
         ],
         'replaced_image' => $hasUpload ? $imagenActual : '',
     ];
 }
 
+function home_gallery_update_order(int $id, int $orden): bool {
+    home_gallery_ensure_table();
+
+    $mysqli = home_gallery_db();
+    $stmt = $mysqli->prepare('UPDATE home_gallery SET orden = ? WHERE id = ?');
+    if (!$stmt) {
+        return false;
+    }
+
+    $stmt->bind_param('ii', $orden, $id);
+    $ok = $stmt->execute();
+    $stmt->close();
+
+    return $ok;
+}
+
 function home_gallery_save(array $data, ?int $id = null): bool {
     home_gallery_ensure_table();
 
     $mysqli = home_gallery_db();
+    $orden = isset($data['orden']) ? max(1, (int) $data['orden']) : home_gallery_next_order();
     if (!empty($data['destacado'])) {
         $mysqli->query('UPDATE home_gallery SET destacado = 0 WHERE destacado = 1');
     }
 
     if ($id === null) {
-        $stmt = $mysqli->prepare('INSERT INTO home_gallery (titulo, descripcion1, descripcion2, imagen, url, abrir_nueva_pestana, destacado) VALUES (?, ?, ?, ?, ?, ?, ?)');
-        if (!$stmt) {
-            return false;
-        }
-        $stmt->bind_param(
-            'sssssii',
-            $data['titulo'],
-            $data['descripcion1'],
-            $data['descripcion2'],
-            $data['imagen'],
-            $data['url'],
-            $data['abrir_nueva_pestana'],
-            $data['destacado']
-        );
-    } else {
-        $stmt = $mysqli->prepare('UPDATE home_gallery SET titulo = ?, descripcion1 = ?, descripcion2 = ?, imagen = ?, url = ?, abrir_nueva_pestana = ?, destacado = ? WHERE id = ?');
+        $stmt = $mysqli->prepare('INSERT INTO home_gallery (titulo, descripcion1, descripcion2, imagen, url, abrir_nueva_pestana, orden, destacado) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
         if (!$stmt) {
             return false;
         }
@@ -247,6 +269,23 @@ function home_gallery_save(array $data, ?int $id = null): bool {
             $data['imagen'],
             $data['url'],
             $data['abrir_nueva_pestana'],
+            $orden,
+            $data['destacado']
+        );
+    } else {
+        $stmt = $mysqli->prepare('UPDATE home_gallery SET titulo = ?, descripcion1 = ?, descripcion2 = ?, imagen = ?, url = ?, abrir_nueva_pestana = ?, orden = ?, destacado = ? WHERE id = ?');
+        if (!$stmt) {
+            return false;
+        }
+        $stmt->bind_param(
+            'sssssiiii',
+            $data['titulo'],
+            $data['descripcion1'],
+            $data['descripcion2'],
+            $data['imagen'],
+            $data['url'],
+            $data['abrir_nueva_pestana'],
+            $orden,
             $data['destacado'],
             $id
         );

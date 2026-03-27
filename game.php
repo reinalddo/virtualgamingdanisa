@@ -15,10 +15,11 @@ if (!empty($_SESSION['auth_user']['email'])) {
 payment_methods_ensure_table();
 $paymentMethodsByCurrency = payment_methods_active_by_currency();
 $game = null;
+$requestedGame = isset($_GET['slug']) || isset($_GET['id']);
 if (isset($_GET['slug'])) {
   $slug = strtolower(trim($_GET['slug']));
   $slug = preg_replace('/[^a-z0-9-]/', '', $slug);
-  $stmt = $mysqli->prepare("SELECT * FROM juegos WHERE slug=? LIMIT 1");
+  $stmt = $mysqli->prepare("SELECT * FROM juegos WHERE slug=? AND COALESCE(activo, 1) = 1 LIMIT 1");
   $stmt->bind_param('s', $slug);
   $stmt->execute();
   $res = $stmt->get_result();
@@ -26,16 +27,16 @@ if (isset($_GET['slug'])) {
   $stmt->close();
 } elseif (isset($_GET['id'])) {
   $id = intval($_GET['id']);
-  $stmt = $mysqli->prepare("SELECT * FROM juegos WHERE id=? LIMIT 1");
+  $stmt = $mysqli->prepare("SELECT * FROM juegos WHERE id=? AND COALESCE(activo, 1) = 1 LIMIT 1");
   $stmt->bind_param('i', $id);
   $stmt->execute();
   $res = $stmt->get_result();
   $game = $res->fetch_assoc();
   $stmt->close();
 }
-if (!$game) {
+if (!$game && !$requestedGame) {
   // Si no se encuentra, mostrar el primero
-  $res = $mysqli->query("SELECT * FROM juegos ORDER BY id DESC LIMIT 1");
+  $res = $mysqli->query("SELECT * FROM juegos WHERE COALESCE(activo, 1) = 1 ORDER BY CASE WHEN orden IS NULL THEN 1 ELSE 0 END, orden ASC, id ASC LIMIT 1");
   $game = $res ? $res->fetch_assoc() : null;
 }
 if (!$game) {
@@ -124,7 +125,7 @@ include __DIR__ . "/includes/header.php";
       }
     }
 
-    $resPaq = $mysqli->query("SELECT * FROM juego_paquetes WHERE juego_id=" . intval($game['id']) . " ORDER BY precio ASC");
+    $resPaq = $mysqli->query("SELECT * FROM juego_paquetes WHERE juego_id=" . intval($game['id']) . " AND COALESCE(activo, 1) = 1 ORDER BY CASE WHEN orden IS NULL THEN 1 ELSE 0 END, orden ASC, id ASC");
     $paquetes = [];
     while ($pack = $resPaq->fetch_assoc()) {
       $paquetes[] = $pack;

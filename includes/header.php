@@ -6,6 +6,10 @@ $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/'));
 if ($scriptDir === '/' || $scriptDir === '.') {
   $scriptDir = '';
 }
+$authScriptBaseDir = preg_replace('#/admin$#', '', $scriptDir);
+if ($authScriptBaseDir === '/' || $authScriptBaseDir === '.') {
+  $authScriptBaseDir = '';
+}
 require_once __DIR__ . '/store_config.php';
 require_once __DIR__ . '/tenant.php';
 require_once __DIR__ . '/google_oauth.php';
@@ -427,7 +431,7 @@ $authModalLoginEmail = trim((string) ($authModalState['email'] ?? ''));
                 </a>
               </div>
             <?php endif; ?>
-            <script src="<?php echo htmlspecialchars($scriptDir . '/registro.js?v=' . date('YmdHis'), ENT_QUOTES, 'UTF-8'); ?>" data-register-endpoint="<?php echo htmlspecialchars($scriptDir . '/register_user.php', ENT_QUOTES, 'UTF-8'); ?>" data-login-url="<?php echo htmlspecialchars($scriptDir . '/login.php', ENT_QUOTES, 'UTF-8'); ?>"></script>
+            <script src="<?php echo htmlspecialchars($authScriptBaseDir . '/registro.js?v=' . date('YmdHis'), ENT_QUOTES, 'UTF-8'); ?>" data-register-endpoint="<?php echo htmlspecialchars($authScriptBaseDir . '/register_user.php', ENT_QUOTES, 'UTF-8'); ?>" data-login-url="<?php echo htmlspecialchars($authScriptBaseDir . '/login.php', ENT_QUOTES, 'UTF-8'); ?>"></script>
             <button type="button" data-auth-switch="login" class="btn btn-link w-100 small fw-bold text-neon">¿Ya tienes una cuenta? Inicia sesión</button>
           </div>
         </div>

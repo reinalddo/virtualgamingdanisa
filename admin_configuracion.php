@@ -718,6 +718,7 @@ $googleCallbackUrl = google_oauth_callback_url();
                         <input class="form-check-input" type="checkbox" value="1" id="destacadoGaleria" name="destacado" <?= $galleryForm['destacado'] ? 'checked' : '' ?>>
                         <label class="form-check-label" for="destacadoGaleria">Marcar como destacado</label>
                       </div>
+                      <div class="form-text mt-2">El orden se asigna automáticamente al crear. Luego puedes ajustarlo directamente en la tabla inferior.</div>
                     </div>
                   </div>
                 </div>
@@ -746,6 +747,7 @@ $googleCallbackUrl = google_oauth_callback_url();
                           <th>Imagen</th>
                           <th>Título</th>
                           <th>Textos</th>
+                          <th>Orden</th>
                           <th>URL</th>
                           <th>Destino</th>
                           <th>Destacado</th>
@@ -764,6 +766,15 @@ $googleCallbackUrl = google_oauth_callback_url();
                             <td>
                               <div><?= htmlspecialchars($item['descripcion1'], ENT_QUOTES, 'UTF-8') ?></div>
                               <div class="small text-secondary"><?= htmlspecialchars($item['descripcion2'], ENT_QUOTES, 'UTF-8') ?></div>
+                            </td>
+                            <td>
+                              <form method="post" class="d-inline-flex align-items-center gap-2 m-0 js-gallery-order-form">
+                                <input type="hidden" name="ajax" value="1">
+                                <input type="hidden" name="config_section" value="galeria">
+                                <input type="hidden" name="gallery_order_update" value="1">
+                                <input type="hidden" name="gallery_order_id" value="<?= (int) $item['id'] ?>">
+                                <input type="number" name="gallery_order" min="1" value="<?= max(1, (int) ($item['orden'] ?? 0)) ?>" class="form-control form-control-sm text-center js-gallery-order-input" style="width:84px;">
+                              </form>
                             </td>
                             <td>
                               <?php if (!empty($item['url'])): ?>
@@ -802,10 +813,18 @@ $googleCallbackUrl = google_oauth_callback_url();
                           </div>
                           <div class="small text-light"><?= htmlspecialchars($item['descripcion1'], ENT_QUOTES, 'UTF-8') ?></div>
                           <div class="small text-secondary"><?= htmlspecialchars($item['descripcion2'], ENT_QUOTES, 'UTF-8') ?></div>
+                          <div class="small mt-2 text-light">Orden: <?= max(1, (int) ($item['orden'] ?? 0)) ?></div>
                           <div class="small mt-2 text-info-emphasis"><?= !empty($item['url']) ? htmlspecialchars($item['url'], ENT_QUOTES, 'UTF-8') : 'Sin URL' ?></div>
                           <div class="small text-secondary mt-1"><?= !empty($item['abrir_nueva_pestana']) ? 'Nueva pestaña' : 'Misma página' ?></div>
                         </div>
                       </div>
+                      <form method="post" class="d-flex gap-2 mt-3 align-items-center js-gallery-order-form">
+                        <input type="hidden" name="ajax" value="1">
+                        <input type="hidden" name="config_section" value="galeria">
+                        <input type="hidden" name="gallery_order_update" value="1">
+                        <input type="hidden" name="gallery_order_id" value="<?= (int) $item['id'] ?>">
+                        <input type="number" name="gallery_order" min="1" value="<?= max(1, (int) ($item['orden'] ?? 0)) ?>" class="form-control form-control-sm js-gallery-order-input" style="max-width:110px;">
+                      </form>
                       <div class="d-flex gap-2 mt-3">
                         <a href="/admin/configuracion?tab=galeria&editar_galeria=<?= (int) $item['id'] ?>" class="btn btn-outline-info btn-sm rounded-4 flex-fill">Editar</a>
                         <a href="/admin/configuracion?tab=galeria&eliminar_galeria=<?= (int) $item['id'] ?>" class="btn btn-outline-danger btn-sm rounded-4 flex-fill" onclick="return confirm('¿Eliminar este elemento de galería?');">Eliminar</a>
@@ -1008,6 +1027,55 @@ $googleCallbackUrl = google_oauth_callback_url();
 
     videoUrlInput.addEventListener('input', syncVideoModeAvailability);
     syncVideoModeAvailability();
+  })();
+
+  (() => {
+    const submitGalleryOrderForm = async (form) => {
+      const response = await fetch(form.action || window.location.href, {
+        method: (form.method || 'POST').toUpperCase(),
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': 'application/json, text/plain, */*'
+        },
+        body: new FormData(form)
+      });
+
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload || payload.ok !== true) {
+        throw new Error(payload && payload.message ? payload.message : 'No se pudo guardar el orden de la galería.');
+      }
+
+      return payload;
+    };
+
+    document.querySelectorAll('.js-gallery-order-form').forEach((form) => {
+      const input = form.querySelector('.js-gallery-order-input');
+      if (!input) {
+        return;
+      }
+
+      input.dataset.lastValue = input.value;
+      input.addEventListener('change', async () => {
+        const normalized = String(Math.max(1, parseInt(input.value || '1', 10) || 1));
+        if (normalized === input.dataset.lastValue) {
+          input.value = normalized;
+          return;
+        }
+
+        input.value = normalized;
+        input.readOnly = true;
+        try {
+          const payload = await submitGalleryOrderForm(form);
+          input.dataset.lastValue = String(payload.orden || normalized);
+          input.value = input.dataset.lastValue;
+        } catch (error) {
+          input.value = input.dataset.lastValue || '1';
+          window.alert(error.message);
+        } finally {
+          input.readOnly = false;
+        }
+      });
+    });
   })();
 </script>
 <?php if (!defined('ADMIN_LAYOUT_EMBEDDED')) include __DIR__ . '/includes/footer.php'; ?>

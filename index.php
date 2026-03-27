@@ -89,9 +89,10 @@ $gameCards = [];
 $resGames = $mysqli->query(
   "SELECT j.*, COUNT(jp.id) AS paquetes_total, MIN(jp.precio) AS precio_minimo\n"
   . "FROM juegos j\n"
-  . "INNER JOIN juego_paquetes jp ON jp.juego_id = j.id\n"
+  . "INNER JOIN juego_paquetes jp ON jp.juego_id = j.id AND COALESCE(jp.activo, 1) = 1\n"
+  . "WHERE COALESCE(j.activo, 1) = 1\n"
   . "GROUP BY j.id\n"
-  . "ORDER BY j.id DESC"
+  . "ORDER BY CASE WHEN j.orden IS NULL THEN 1 ELSE 0 END, j.orden ASC, j.id ASC"
 );
 if ($resGames instanceof mysqli_result) {
   while ($game = $resGames->fetch_assoc()) {
