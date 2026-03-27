@@ -49,7 +49,7 @@ if ($action === 'nuevo') {
 
         $errores = [];
         if ($codigo === '') $errores[] = 'El código es obligatorio.';
-        if ($valor_descuento <= 0) $errores[] = 'El valor de descuento debe ser mayor a 0.';
+        if ($valor_descuento < 0) $errores[] = 'El valor de descuento no puede ser menor a 0.';
         if (!in_array($tipo_descuento, ['porcentaje', 'fijo'])) $errores[] = 'Tipo de descuento inválido.';
 
         if (empty($errores)) {
@@ -73,7 +73,7 @@ if ($action === 'nuevo') {
     $contenido .= '<form method="post" action="'.url_cupon('nuevo').'" class="neon-form">';
     $contenido .= '<label>Código: <input type="text" name="codigo" required></label>';
     $contenido .= '<label>Tipo de descuento: <select name="tipo_descuento"><option value="porcentaje">Porcentaje (%)</option><option value="fijo">Monto fijo</option></select></label>';
-    $contenido .= '<label>Valor descuento: <input type="number" name="valor_descuento" step="0.01" min="0.01" required></label>';
+    $contenido .= '<label>Valor descuento: <input type="number" name="valor_descuento" step="0.01" min="0" required></label>';
     $contenido .= '<label>Fecha expiración: <input type="datetime-local" name="fecha_expiracion"></label>';
     $contenido .= '<label>Límite de usos: <input type="number" name="limite_usos" min="0" placeholder="0 = ilimitado"></label>';
     $contenido .= '<div class="checkbox"><input type="checkbox" name="activo" checked> <span>Cupón activo</span></div>';
@@ -96,7 +96,7 @@ if ($action === 'nuevo') {
             $activo = isset($_POST['activo']) ? 1 : 0;
             $errores = [];
             if ($codigo === '') $errores[] = 'El código es obligatorio.';
-            if ($valor_descuento <= 0) $errores[] = 'El valor de descuento debe ser mayor a 0.';
+            if ($valor_descuento < 0) $errores[] = 'El valor de descuento no puede ser menor a 0.';
             if (!in_array($tipo_descuento, ['porcentaje', 'fijo'])) $errores[] = 'Tipo de descuento inválido.';
             if (empty($errores)) {
                 $stmt2 = $db->prepare("UPDATE cupones SET codigo=?, tipo_descuento=?, valor_descuento=?, fecha_expiracion=?, limite_usos=?, activo=? WHERE id=?");
@@ -130,7 +130,7 @@ if ($action === 'nuevo') {
         $contenido .= '<option value="porcentaje"'.($tipo_descuento=='porcentaje'?' selected':'').'>Porcentaje (%)</option>';
         $contenido .= '<option value="fijo"'.($tipo_descuento=='fijo'?' selected':'').'>Monto fijo</option>';
         $contenido .= '</select></label>';
-        $contenido .= '<label>Valor descuento: <input type="number" name="valor_descuento" step="0.01" min="0.01" value="'.htmlspecialchars($valor_descuento).'" required></label>';
+        $contenido .= '<label>Valor descuento: <input type="number" name="valor_descuento" step="0.01" min="0" value="'.htmlspecialchars($valor_descuento).'" required></label>';
         $contenido .= '<label>Fecha expiración: <input type="datetime-local" name="fecha_expiracion" value="'.($fecha_expiracion ? date('Y-m-d\TH:i', strtotime($fecha_expiracion)) : '').'"></label>';
         $contenido .= '<label>Límite de usos: <input type="number" name="limite_usos" min="0" value="'.htmlspecialchars($limite_usos).'" placeholder="0 = ilimitado"></label>';
         $contenido .= '<div class="checkbox"><input type="checkbox" name="activo"'.($activo?' checked':'').'> <span>Cupón activo</span></div>';
@@ -236,7 +236,7 @@ if ($action === 'nuevo') {
             </div>
             <div class="col-md-4">
                 <label class="form-label" style="color:#00fff7;">Valor del descuento</label>
-                <input type="number" name="valor_descuento" step="0.01" min="0.01" required class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
+                <input type="number" name="valor_descuento" step="0.01" min="0" required class="form-control" style="background:#222c3a; color:#00fff7; border:1px solid #00fff7;">
             </div>
             <div class="col-md-4">
                 <label class="form-label" style="color:#00fff7;">Fecha expiración</label>
