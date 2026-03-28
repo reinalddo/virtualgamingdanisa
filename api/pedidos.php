@@ -14,6 +14,7 @@ require_once __DIR__ . '/../includes/influencer_coupons.php';
 require_once __DIR__ . '/../includes/payment_methods.php';
 require_once __DIR__ . '/../includes/store_config.php';
 require_once __DIR__ . '/../includes/recargas_api.php';
+require_once __DIR__ . '/../includes/recharge_notifications.php';
 
 if (!function_exists('create_app_mysqli_connection')) {
     function create_app_mysqli_connection(): mysqli {
@@ -2913,6 +2914,9 @@ function sync_local_order_with_provider_detail(mysqli $mysqli, array $order, arr
 
     $updatedOrder = fetch_order_by_id($mysqli, $orderId) ?: $order;
     $previousStatus = (string) ($order['estado'] ?? '');
+    if (in_array($localStatus, ['pagado', 'enviado'], true)) {
+        recharge_notifications_emit_for_order($mysqli, $updatedOrder);
+    }
     if ($notify && $localStatus !== $previousStatus) {
         if ($localStatus === 'enviado') {
             notify_free_fire_recharge_success(
@@ -3489,6 +3493,7 @@ if ($action === 'submit_payment') {
                 $paidStmt->close();
 
                 $paidOrder = fetch_order_by_id($mysqli, $orderId) ?: $updatedOrder;
+                recharge_notifications_emit_for_order($mysqli, $paidOrder);
                 json_response([
                     'ok' => true,
                     'message' => 'Pago verificado automáticamente. Tu pedido quedó en estado verificado.',
@@ -3553,6 +3558,7 @@ if ($action === 'submit_payment') {
                 $verifyStmt->close();
 
                 $verifiedOrder = fetch_order_by_id($mysqli, $orderId) ?: $updatedOrder;
+                recharge_notifications_emit_for_order($mysqli, $verifiedOrder);
                 json_response([
                     'ok' => true,
                     'message' => 'Pago verificado y recarga procesada correctamente.',
@@ -3602,6 +3608,7 @@ if ($action === 'submit_payment') {
                 $paidStmt->close();
 
                 $paidOrder = fetch_order_by_id($mysqli, $orderId) ?: $updatedOrder;
+                recharge_notifications_emit_for_order($mysqli, $paidOrder);
                 json_response([
                     'ok' => true,
                     'message' => 'El pago fue verificado. La compra quedo en seguimiento automatico mientras confirmamos la respuesta del proveedor.',
@@ -3646,6 +3653,7 @@ if ($action === 'submit_payment') {
                 $paidStmt->close();
 
                 $paidOrder = fetch_order_by_id($mysqli, $orderId) ?: $updatedOrder;
+                recharge_notifications_emit_for_order($mysqli, $paidOrder);
 
                 $autoSyncAttempts = $manualProcessing ? 5 : 3;
                 $autoSyncDelaySeconds = $manualProcessing ? 4 : 2;
@@ -3730,6 +3738,7 @@ if ($action === 'submit_payment') {
             $paidStmt->close();
 
             $paidOrder = fetch_order_by_id($mysqli, $orderId) ?: $updatedOrder;
+            recharge_notifications_emit_for_order($mysqli, $paidOrder);
             json_response([
                 'ok' => true,
                 'message' => 'El pago fue verificado, pero la recarga no pudo completarse automáticamente. Nuestro equipo revisará tu pedido.',
@@ -4066,6 +4075,7 @@ if ($action === 'admin_retry_recharge') {
             $stmt->close();
 
             $updatedOrder = fetch_order_by_id($mysqli, $orderId) ?: $order;
+            recharge_notifications_emit_for_order($mysqli, $updatedOrder);
             json_response([
                 'ok' => true,
                 'message' => 'La recarga fue reenviada y procesada correctamente.',
@@ -4225,6 +4235,7 @@ if ($action === 'admin_retry_recharge') {
             $stmt->close();
 
             $updatedOrder = fetch_order_by_id($mysqli, $orderId) ?: $order;
+            recharge_notifications_emit_for_order($mysqli, $updatedOrder);
             json_response([
                 'ok' => true,
                 'message' => 'La recarga de Free Fire fue enviada correctamente.',
@@ -4391,6 +4402,13 @@ if ($action === 'update_status') {
             'moneda' => $order['moneda'] ?? null,
             'precio' => $order['precio'] ?? 0,
         ]);
+    }
+
+    if (in_array($new_status, ['pagado', 'enviado'], true)) {
+        recharge_notifications_emit_for_order($mysqli, array_merge($order, [
+            'id' => $order_id,
+            'estado' => $new_status,
+        ]));
     }
 
     $adminEmail = resolve_admin_email($mysqli);

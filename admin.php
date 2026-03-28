@@ -873,7 +873,7 @@ switch ($seccion) {
         require_once __DIR__ . '/includes/payment_methods.php';
         $startupPopupTabEnabled = store_config_get('inicio_popup_tab_habilitado', '1') === '1';
         $activeTab = $_GET['tab'] ?? 'correo';
-        $allowedTabs = ['correo', 'cabecera', 'sociales', 'api-banco', 'api-free-fire', 'personalizar-colores', 'galeria', 'metodos-pago'];
+        $allowedTabs = ['correo', 'cabecera', 'notificaciones-recargas', 'sociales', 'api-banco', 'api-free-fire', 'personalizar-colores', 'galeria', 'metodos-pago'];
         if ($startupPopupTabEnabled) {
             $allowedTabs[] = 'ventana-inicial';
         }
@@ -1132,6 +1132,40 @@ switch ($seccion) {
                 }
 
                 admin_set_flash('success', 'Datos de cabecera actualizados.');
+            }
+
+            if ($activeTab === 'notificaciones-recargas') {
+                $currentLogo = store_config_get('recarga_notificaciones_logo', '');
+                $nextLogo = $currentLogo;
+                $hasUpload = isset($_FILES['recarga_notificaciones_logo'])
+                    && (($_FILES['recarga_notificaciones_logo']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE);
+
+                if ($hasUpload) {
+                    $upload = store_config_store_recharge_notification_logo_upload($_FILES['recarga_notificaciones_logo']);
+                    if (!$upload['success']) {
+                        admin_set_flash('error', $upload['message']);
+                        define('ADMIN_CONFIG_POST_HANDLED', true);
+                        admin_redirect('configuracion', ['tab' => 'notificaciones-recargas']);
+                    }
+                    if (!empty($upload['path'])) {
+                        $nextLogo = $upload['path'];
+                    }
+                } elseif (isset($_POST['eliminar_recarga_notificaciones_logo'])) {
+                    $nextLogo = '';
+                }
+
+                store_config_upsert('recarga_notificaciones_activas', isset($_POST['recarga_notificaciones_activas']) ? '1' : '0');
+                if ($nextLogo === '') {
+                    store_config_delete('recarga_notificaciones_logo');
+                } else {
+                    store_config_upsert('recarga_notificaciones_logo', $nextLogo);
+                }
+
+                if ($currentLogo !== '' && $currentLogo !== $nextLogo) {
+                    store_config_delete_logo_file($currentLogo);
+                }
+
+                admin_set_flash('success', 'Configuración de notificaciones de recargas actualizada.');
             }
 
             if ($activeTab === 'sociales') {

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/store_config.php';
+require_once __DIR__ . '/recharge_notifications.php';
 
 $facebookUrl = store_config_normalize_social_url(store_config_get('facebook', ''));
 $instagramUrl = store_config_normalize_social_url(store_config_get('instagram', ''));
@@ -12,6 +13,8 @@ $hasFacebook = store_config_is_valid_social_url($facebookUrl);
 $hasInstagram = store_config_is_valid_social_url($instagramUrl);
 $hasWhatsapp = $whatsappUrl !== '';
 $hasWhatsappChannel = store_config_is_valid_social_url($whatsappChannelUrl);
+$rechargeNotificationsEnabled = recharge_notifications_is_enabled() && recharge_notifications_is_public_context();
+$rechargeNotificationsEnabledJs = $rechargeNotificationsEnabled ? 'true' : 'false';
 
 $menuScript = <<<'SCRIPT'
 <script>
@@ -451,6 +454,124 @@ $menuScript = <<<'SCRIPT'
   }
 </script>
 SCRIPT;
+
+$rechargeNotificationsScript = <<<'SCRIPT'
+<script>
+  (() => {
+    const enabled = __LIVE_RECHARGE_ENABLED__;
+    if (!enabled) {
+      return;
+    }
+
+    const endpoint = "/api/recharge_notifications.php";
+    const container = document.getElementById("live-recharge-notifications");
+    if (!container) {
+      return;
+    }
+
+    const queue = [];
+    const seen = new Set();
+    let cursor = null;
+    let active = false;
+    let logoPath = "";
+
+    const escapeHtml = (value) => String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/\"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+
+    const showNext = () => {
+      if (active || queue.length === 0) {
+        return;
+      }
+
+      const item = queue.shift();
+      if (!item) {
+        return;
+      }
+
+      active = true;
+      const article = document.createElement("article");
+      article.className = "live-recharge-toast";
+      article.innerHTML = `
+        <div class="live-recharge-toast__pulse" aria-hidden="true"></div>
+        ${logoPath ? `<div class="live-recharge-toast__logo-wrap"><img src="${escapeHtml(logoPath)}" alt="Logo" class="live-recharge-toast__logo"></div>` : ""}
+        <div class="live-recharge-toast__body">
+          <div class="live-recharge-toast__title">${escapeHtml(item.title || "Nueva recarga")}</div>
+          <div class="live-recharge-toast__detail">${escapeHtml(item.detail || "")}</div>
+        </div>`;
+
+      container.appendChild(article);
+      requestAnimationFrame(() => {
+        article.classList.add("is-visible");
+      });
+
+      window.setTimeout(() => {
+        article.classList.remove("is-visible");
+        article.classList.add("is-leaving");
+        window.setTimeout(() => {
+          article.remove();
+          active = false;
+          showNext();
+        }, 320);
+      }, 5000);
+    };
+
+    const enqueue = (items) => {
+      items.forEach((item) => {
+        const id = Number(item && item.id ? item.id : 0);
+        if (!id || seen.has(id)) {
+          return;
+        }
+        seen.add(id);
+        queue.push(item);
+      });
+      showNext();
+    };
+
+    const poll = async (initial = false) => {
+      try {
+        const url = cursor === null
+          ? endpoint
+          : `${endpoint}?cursor=${encodeURIComponent(String(cursor))}`;
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          headers: { "Accept": "application/json" },
+          cache: "no-store",
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          return;
+        }
+        if (typeof data.logo_path === "string" && data.logo_path.trim() !== "") {
+          logoPath = data.logo_path.trim();
+        }
+        if (typeof data.cursor === "number") {
+          cursor = data.cursor;
+        }
+        if (!initial && Array.isArray(data.notifications) && data.notifications.length > 0) {
+          enqueue(data.notifications);
+        }
+      } catch (error) {
+      }
+    };
+
+    poll(true);
+    window.setInterval(() => {
+      poll(false);
+    }, 10000);
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        poll(false);
+      }
+    });
+  })();
+</script>
+SCRIPT;
+$rechargeNotificationsScript = str_replace('__LIVE_RECHARGE_ENABLED__', $rechargeNotificationsEnabledJs, $rechargeNotificationsScript);
 ?>
     </div>
   </div>
@@ -499,11 +620,116 @@ SCRIPT;
       <?php endif; ?>
     </div>
   <?php endif; ?>
+  <div id="live-recharge-notifications" class="live-recharge-stack" aria-live="polite" aria-atomic="false"></div>
+  <style>
+    .live-recharge-stack {
+      position: fixed;
+      left: 16px;
+      bottom: 16px;
+      z-index: 1040;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      pointer-events: none;
+      max-width: min(360px, calc(100vw - 32px));
+    }
+    .live-recharge-toast {
+      display: grid;
+      grid-template-columns: auto auto 1fr;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.8rem 0.95rem;
+      border-radius: 18px;
+      border: 1px solid rgba(var(--theme-live-notification-border-rgb), 0.72);
+      background: linear-gradient(135deg, rgba(var(--theme-live-notification-bg-rgb), 0.98), rgba(var(--theme-live-notification-border-rgb), 0.16));
+      box-shadow: 0 18px 45px rgba(2, 6, 23, 0.42), 0 0 18px rgba(var(--theme-live-notification-border-rgb), 0.16);
+      backdrop-filter: blur(14px);
+      transform: translateX(-18px);
+      opacity: 0;
+      transition: opacity 0.28s ease, transform 0.28s ease;
+      pointer-events: none;
+    }
+    .live-recharge-toast.is-visible {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    .live-recharge-toast.is-leaving {
+      opacity: 0;
+      transform: translateX(-18px);
+    }
+    .live-recharge-toast__pulse {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--theme-live-notification-accent);
+      box-shadow: 0 0 0 0 rgba(var(--theme-live-notification-accent-rgb), 0.56);
+      animation: live-recharge-pulse 1.9s ease-out infinite;
+    }
+    .live-recharge-toast__logo-wrap {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(var(--theme-live-notification-border-rgb), 0.34);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .live-recharge-toast__logo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .live-recharge-toast__body {
+      min-width: 0;
+    }
+    .live-recharge-toast__title {
+      color: var(--theme-live-notification-text);
+      font-size: 0.9rem;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 0.12rem;
+      letter-spacing: 0.01em;
+    }
+    .live-recharge-toast__detail {
+      color: var(--theme-live-notification-muted);
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+    @keyframes live-recharge-pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(var(--theme-live-notification-accent-rgb), 0.56);
+      }
+      70% {
+        box-shadow: 0 0 0 12px rgba(var(--theme-live-notification-accent-rgb), 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(var(--theme-live-notification-accent-rgb), 0);
+      }
+    }
+    @media (max-width: 575.98px) {
+      .live-recharge-stack {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        max-width: none;
+      }
+      .live-recharge-toast {
+        grid-template-columns: auto auto 1fr;
+        padding: 0.75rem 0.85rem;
+        gap: 0.75rem;
+      }
+    }
+  </style>
   <?php
   $menuScriptVersioned = str_replace('<script', '<script', $menuScript);
   $menuScriptVersioned = str_replace('</script>', '</script>', $menuScriptVersioned);
   // Si hay scripts externos, agregar ?v=fecha
   echo $menuScriptVersioned;
+  echo $rechargeNotificationsScript;
   ?>
   <?php
   if (!empty($pageScripts) && is_array($pageScripts)) {

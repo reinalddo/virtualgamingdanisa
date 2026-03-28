@@ -9,7 +9,7 @@ require_once __DIR__ . '/includes/google_oauth.php';
 
 $activeTab = defined('ADMIN_CONFIG_ACTIVE_TAB') ? ADMIN_CONFIG_ACTIVE_TAB : ($_GET['tab'] ?? 'correo');
 $startupPopupTabEnabled = store_config_get('inicio_popup_tab_habilitado', '1') === '1';
-$allowedTabs = ['correo', 'cabecera', 'sociales', 'api-banco', 'api-free-fire', 'personalizar-colores', 'galeria', 'metodos-pago'];
+$allowedTabs = ['correo', 'cabecera', 'notificaciones-recargas', 'sociales', 'api-banco', 'api-free-fire', 'personalizar-colores', 'galeria', 'metodos-pago'];
 if ($startupPopupTabEnabled) {
   $allowedTabs[] = 'ventana-inicial';
 }
@@ -21,6 +21,8 @@ home_gallery_ensure_table();
 payment_methods_ensure_table();
 $cfg = store_config_all();
 $logoTienda = trim((string) ($cfg['logo_tienda'] ?? ''));
+$rechargeNotificationsLogo = trim((string) ($cfg['recarga_notificaciones_logo'] ?? ''));
+$rechargeNotificationsEffectiveLogo = $rechargeNotificationsLogo !== '' ? $rechargeNotificationsLogo : $logoTienda;
 $galleryItems = home_gallery_all();
 $paymentCurrencies = payment_methods_currency_options();
 $galleryEditId = isset($_GET['editar_galeria']) ? intval($_GET['editar_galeria']) : 0;
@@ -52,6 +54,7 @@ $themeFieldGroups = [
   'Neón y acciones' => ['theme_primary', 'theme_highlight', 'theme_secondary', 'theme_success'],
   'Botones y paquetes' => ['theme_button_primary', 'theme_button_secondary', 'theme_button_surface'],
   'Botones flotantes' => ['theme_float_whatsapp_bg', 'theme_float_whatsapp_text', 'theme_float_channel_bg', 'theme_float_channel_text'],
+  'Notificaciones de recargas' => ['theme_live_notification_bg', 'theme_live_notification_border', 'theme_live_notification_accent', 'theme_live_notification_text', 'theme_live_notification_muted'],
   'Ventana inicial' => ['theme_startup_popup_surface', 'theme_startup_popup_border', 'theme_startup_popup_accent', 'theme_startup_popup_chip', 'theme_startup_popup_button_text'],
   'Ventana inicial con video' => ['theme_startup_video_popup_surface', 'theme_startup_video_popup_border', 'theme_startup_video_popup_accent', 'theme_startup_video_popup_button_bg', 'theme_startup_video_popup_button_text'],
   'Textos y estados' => ['theme_text', 'theme_text_muted', 'theme_price_text', 'theme_price_muted', 'theme_warning', 'theme_danger'],
@@ -350,6 +353,9 @@ $googleCallbackUrl = google_oauth_callback_url();
             <a href="/admin/configuracion?tab=cabecera" class="neon-tab-link <?= $activeTab === 'cabecera' ? 'active' : '' ?>">Datos de cabecera</a>
           </div>
           <div class="neon-tabs-item">
+            <a href="/admin/configuracion?tab=notificaciones-recargas" class="neon-tab-link <?= $activeTab === 'notificaciones-recargas' ? 'active' : '' ?>">Notificaciones Recargas</a>
+          </div>
+          <div class="neon-tabs-item">
             <a href="/admin/configuracion?tab=sociales" class="neon-tab-link <?= $activeTab === 'sociales' ? 'active' : '' ?>">Redes Sociales</a>
           </div>
           <div class="neon-tabs-item">
@@ -378,7 +384,7 @@ $googleCallbackUrl = google_oauth_callback_url();
       <div class="card neon-card mb-4">
         <div class="card-header text-center py-4" style="background: linear-gradient(90deg, var(--theme-highlight) 0%, var(--theme-success) 100%); color: var(--theme-button-text-strong); border-radius: 16px 16px 0 0;">
           <h2 class="h4 fw-bold mb-0" style="font-family: 'Oxanium', 'Montserrat', 'Arial', sans-serif; letter-spacing: 0.08em;">
-            <?php if ($activeTab === 'correo'): ?>Configuración de correo corporativo<?php elseif ($activeTab === 'cabecera'): ?>Datos de cabecera<?php elseif ($activeTab === 'sociales'): ?>Redes Sociales<?php elseif ($activeTab === 'api-banco'): ?>Datos conexión Banco<?php elseif ($activeTab === 'api-free-fire'): ?>Datos API<?php elseif ($activeTab === 'personalizar-colores'): ?>Personalizar Colores<?php elseif ($activeTab === 'ventana-inicial'): ?>Ventana Inicial<?php elseif ($activeTab === 'galeria'): ?>Galería principal del index<?php else: ?>Métodos de Pago<?php endif; ?>
+            <?php if ($activeTab === 'correo'): ?>Configuración de correo corporativo<?php elseif ($activeTab === 'cabecera'): ?>Datos de cabecera<?php elseif ($activeTab === 'notificaciones-recargas'): ?>Notificaciones Recargas<?php elseif ($activeTab === 'sociales'): ?>Redes Sociales<?php elseif ($activeTab === 'api-banco'): ?>Datos conexión Banco<?php elseif ($activeTab === 'api-free-fire'): ?>Datos API<?php elseif ($activeTab === 'personalizar-colores'): ?>Personalizar Colores<?php elseif ($activeTab === 'ventana-inicial'): ?>Ventana Inicial<?php elseif ($activeTab === 'galeria'): ?>Galería principal del index<?php else: ?>Métodos de Pago<?php endif; ?>
           </h2>
         </div>
         <div class="card-body p-4">
@@ -468,6 +474,42 @@ $googleCallbackUrl = google_oauth_callback_url();
                 </div>
               </div>
               <button type="submit" class="neon-btn w-100 py-3 mt-4">Guardar datos de cabecera</button>
+            </form>
+          <?php elseif ($activeTab === 'notificaciones-recargas'): ?>
+            <form method="post" enctype="multipart/form-data">
+              <input type="hidden" name="config_section" value="notificaciones-recargas">
+              <div class="config-section-note mb-4">Activa o desactiva los avisos globales de recargas, y define un logo exclusivo para la notificación. Si no subes uno, se usará el logo configurado en Datos de cabecera.</div>
+              <div class="row g-4 align-items-start">
+                <div class="col-md-8">
+                  <div class="form-check form-switch mb-4">
+                    <input class="form-check-input" type="checkbox" role="switch" id="recargaNotificacionesActivas" name="recarga_notificaciones_activas" value="1" <?= ($cfg['recarga_notificaciones_activas'] ?? '1') !== '0' ? 'checked' : '' ?>>
+                    <label class="form-check-label" for="recargaNotificacionesActivas">Mostrar notificaciones de recargas en todo el sitio público</label>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Logo de la notificación</label>
+                    <input type="file" name="recarga_notificaciones_logo" accept="image/png,image/jpeg,image/webp,image/gif" class="form-control">
+                    <div class="form-text mt-2">Si lo dejas vacío, la notificación usará automáticamente el logo principal de la tienda.</div>
+                  </div>
+                  <div class="form-check mt-3">
+                    <input class="form-check-input" type="checkbox" value="1" id="eliminarLogoNotificacionRecarga" name="eliminar_recarga_notificaciones_logo">
+                    <label class="form-check-label" for="eliminarLogoNotificacionRecarga">Eliminar logo propio y volver a usar el logo principal</label>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label d-block">Vista previa del logo</label>
+                  <div class="header-logo-preview">
+                    <?php if ($rechargeNotificationsEffectiveLogo !== ''): ?>
+                      <img src="<?= htmlspecialchars($rechargeNotificationsEffectiveLogo, ENT_QUOTES, 'UTF-8') ?>" alt="Logo de notificación de recarga">
+                    <?php else: ?>
+                      <span class="header-logo-empty">Sin logo</span>
+                    <?php endif; ?>
+                  </div>
+                  <div class="form-text mt-3">
+                    <?= $rechargeNotificationsLogo !== '' ? 'Se está usando un logo exclusivo para esta notificación.' : 'Actualmente se usará el logo principal configurado en la cabecera.' ?>
+                  </div>
+                </div>
+              </div>
+              <button type="submit" class="neon-btn w-100 py-3 mt-4">Guardar notificaciones de recargas</button>
             </form>
           <?php elseif ($activeTab === 'sociales'): ?>
             <form method="post">

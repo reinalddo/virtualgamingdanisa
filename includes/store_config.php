@@ -162,6 +162,31 @@ function store_theme_definitions(): array {
             'default' => '#F8FAFC',
             'description' => 'Color del texto e icono del botón principal de la ventana inicial con video',
         ],
+        'theme_live_notification_bg' => [
+            'label' => 'Notificación recarga fondo',
+            'default' => '#0F172A',
+            'description' => 'Color de fondo de la notificación flotante de recargas',
+        ],
+        'theme_live_notification_border' => [
+            'label' => 'Notificación recarga borde',
+            'default' => '#1D4ED8',
+            'description' => 'Color del borde y brillo exterior de la notificación flotante de recargas',
+        ],
+        'theme_live_notification_accent' => [
+            'label' => 'Notificación recarga acento',
+            'default' => '#22D3EE',
+            'description' => 'Color del acento, punto activo y detalles destacados de la notificación de recargas',
+        ],
+        'theme_live_notification_text' => [
+            'label' => 'Notificación recarga texto',
+            'default' => '#F8FAFC',
+            'description' => 'Color del texto principal de la notificación flotante de recargas',
+        ],
+        'theme_live_notification_muted' => [
+            'label' => 'Notificación recarga texto secundario',
+            'default' => '#BFDBFE',
+            'description' => 'Color del texto secundario y complementario de la notificación flotante de recargas',
+        ],
     ];
 }
 
@@ -191,6 +216,8 @@ function store_config_descriptions(): array {
         'meta_titulo' => 'Título SEO usado en la etiqueta title y en etiquetas Open Graph/Twitter',
         'meta_descripcion' => 'Descripción SEO usada en la etiqueta meta description para Google y redes sociales',
         'logo_tienda' => 'Ruta del logo visible en el encabezado',
+        'recarga_notificaciones_activas' => 'Activa o desactiva las notificaciones flotantes de recargas en el sitio público',
+        'recarga_notificaciones_logo' => 'Ruta del logo usado en la notificación flotante de recargas',
         'facebook' => 'URL de Facebook de la tienda',
         'instagram' => 'URL de Instagram de la tienda',
         'whatsapp' => 'Número o enlace de WhatsApp de la tienda',
@@ -238,6 +265,8 @@ function store_config_defaults(): array {
         'meta_titulo' => 'TVirtualGaming | Tienda de monedas digitales',
         'meta_descripcion' => 'Compra monedas y recargas digitales en TVirtualGaming. Recibe ofertas, promociones y novedades directamente en tu WhatsApp.',
         'logo_tienda' => '',
+        'recarga_notificaciones_activas' => '1',
+        'recarga_notificaciones_logo' => '',
         'facebook' => '',
         'instagram' => '',
         'whatsapp' => '',
@@ -464,6 +493,11 @@ function store_theme_css_variables(): string {
         '--theme-startup-video-popup-accent' => $theme['theme_startup_video_popup_accent'],
         '--theme-startup-video-popup-button-bg' => $theme['theme_startup_video_popup_button_bg'],
         '--theme-startup-video-popup-button-text' => $theme['theme_startup_video_popup_button_text'],
+        '--theme-live-notification-bg' => $theme['theme_live_notification_bg'],
+        '--theme-live-notification-border' => $theme['theme_live_notification_border'],
+        '--theme-live-notification-accent' => $theme['theme_live_notification_accent'],
+        '--theme-live-notification-text' => $theme['theme_live_notification_text'],
+        '--theme-live-notification-muted' => $theme['theme_live_notification_muted'],
         '--theme-body-glow' => $bodyGlow,
         '--theme-panel-glow' => $panelGlow,
         '--theme-panel-bg' => $panelBg,
@@ -497,6 +531,11 @@ function store_theme_css_variables(): string {
         '--theme-startup-video-popup-accent-rgb' => store_theme_rgb_string($theme['theme_startup_video_popup_accent']),
         '--theme-startup-video-popup-button-bg-rgb' => store_theme_rgb_string($theme['theme_startup_video_popup_button_bg']),
         '--theme-startup-video-popup-button-text-rgb' => store_theme_rgb_string($theme['theme_startup_video_popup_button_text']),
+        '--theme-live-notification-bg-rgb' => store_theme_rgb_string($theme['theme_live_notification_bg']),
+        '--theme-live-notification-border-rgb' => store_theme_rgb_string($theme['theme_live_notification_border']),
+        '--theme-live-notification-accent-rgb' => store_theme_rgb_string($theme['theme_live_notification_accent']),
+        '--theme-live-notification-text-rgb' => store_theme_rgb_string($theme['theme_live_notification_text']),
+        '--theme-live-notification-muted-rgb' => store_theme_rgb_string($theme['theme_live_notification_muted']),
         '--theme-success-rgb' => store_theme_rgb_string($theme['theme_success']),
         '--theme-warning-rgb' => store_theme_rgb_string($theme['theme_warning']),
         '--theme-danger-rgb' => store_theme_rgb_string($theme['theme_danger']),
@@ -861,7 +900,7 @@ function store_config_delete_logo_file(string $relativePath): void {
     }
 }
 
-function store_config_store_logo_upload(array $file): array {
+function store_config_store_named_logo_upload(array $file, string $prefix = 'store-logo'): array {
     if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
         return ['success' => true, 'path' => ''];
     }
@@ -901,7 +940,8 @@ function store_config_store_logo_upload(array $file): array {
         return ['success' => false, 'message' => 'No se pudo crear la carpeta del logo.'];
     }
 
-    $fileName = 'store-logo-' . date('YmdHis') . '-' . bin2hex(random_bytes(4)) . '.' . $extensions[$mime];
+    $safePrefix = preg_replace('/[^a-z0-9\-]+/i', '-', trim($prefix)) ?: 'store-logo';
+    $fileName = $safePrefix . '-' . date('YmdHis') . '-' . bin2hex(random_bytes(4)) . '.' . $extensions[$mime];
     $targetPath = $targetDir . DIRECTORY_SEPARATOR . $fileName;
 
     if (!move_uploaded_file($tmpName, $targetPath)) {
@@ -909,4 +949,12 @@ function store_config_store_logo_upload(array $file): array {
     }
 
     return ['success' => true, 'path' => '/assets/img/store/' . $fileName];
+}
+
+function store_config_store_logo_upload(array $file): array {
+    return store_config_store_named_logo_upload($file, 'store-logo');
+}
+
+function store_config_store_recharge_notification_logo_upload(array $file): array {
+    return store_config_store_named_logo_upload($file, 'recharge-notification-logo');
 }
