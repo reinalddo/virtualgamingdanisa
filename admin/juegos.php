@@ -2,6 +2,7 @@
 // admin/juegos.php - Gestión de juegos y características
 require_once '../includes/db_connect.php';
 require_once '../includes/recargas_api.php';
+require_once '../includes/slugify.php';
 
 function admin_games_is_ajax_request(): bool {
     if (isset($_REQUEST['ajax']) && (string) $_REQUEST['ajax'] === '1') {
@@ -49,6 +50,13 @@ function ensure_juegos_orden_column(mysqli $mysqli): void {
     }
 }
 
+function ensure_juegos_slug_column(mysqli $mysqli): void {
+    $result = $mysqli->query("SHOW COLUMNS FROM juegos LIKE 'slug'");
+    if (!($result instanceof mysqli_result) || $result->num_rows === 0) {
+        $mysqli->query("ALTER TABLE juegos ADD COLUMN slug VARCHAR(200) NULL AFTER descripcion");
+    }
+}
+
 function admin_game_next_order(mysqli $mysqli): int {
     $result = $mysqli->query("SELECT COALESCE(MAX(orden), 0) + 1 AS next_order FROM juegos");
     $row = $result instanceof mysqli_result ? $result->fetch_assoc() : null;
@@ -59,6 +67,7 @@ ensure_juegos_api_free_fire_column($mysqli);
 ensure_juegos_activo_column($mysqli);
 ensure_juegos_categoria_api_column($mysqli);
 ensure_juegos_orden_column($mysqli);
+ensure_juegos_slug_column($mysqli);
 
 $apiCategories = [];
 $apiCategoriesError = null;
@@ -145,6 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_juego_submit'], 
     $edit_id = intval($_POST['edit_juego_id']);
     $edit_nombre = trim($_POST['edit_nombre']);
     $edit_descripcion = trim($_POST['edit_descripcion']);
+    $edit_slug = slugify($edit_nombre);
     $edit_popular = isset($_POST['edit_popular']) ? 1 : 0;
     $edit_categoria_api = trim((string) ($_POST['edit_categoria_api'] ?? ''));
     $edit_api_free_fire = $edit_categoria_api !== '' ? 1 : 0;
@@ -179,17 +189,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_juego_submit'], 
         }
     }
     if ($edit_imagen && $edit_imagen_paquete) {
-        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, imagen=?, imagen_paquete=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
-        $stmt->bind_param('ssssiisiii', $edit_nombre, $edit_descripcion, $edit_imagen, $edit_imagen_paquete, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, slug=?, imagen=?, imagen_paquete=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
+        $stmt->bind_param('sssssiisiii', $edit_nombre, $edit_descripcion, $edit_slug, $edit_imagen, $edit_imagen_paquete, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
     } elseif ($edit_imagen) {
-        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, imagen=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
-        $stmt->bind_param('sssiisiii', $edit_nombre, $edit_descripcion, $edit_imagen, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, slug=?, imagen=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
+        $stmt->bind_param('ssssiisiii', $edit_nombre, $edit_descripcion, $edit_slug, $edit_imagen, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
     } elseif ($edit_imagen_paquete) {
-        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, imagen_paquete=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
-        $stmt->bind_param('sssiisiii', $edit_nombre, $edit_descripcion, $edit_imagen_paquete, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, slug=?, imagen_paquete=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
+        $stmt->bind_param('ssssiisiii', $edit_nombre, $edit_descripcion, $edit_slug, $edit_imagen_paquete, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
     } else {
-        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
-        $stmt->bind_param('ssiisiii', $edit_nombre, $edit_descripcion, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
+        $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, descripcion=?, slug=?, popular=?, api_free_fire=?, categoria_api=?, activo=?, moneda_fija_id=? WHERE id=?");
+        $stmt->bind_param('sssiisiii', $edit_nombre, $edit_descripcion, $edit_slug, $edit_popular, $edit_api_free_fire, $edit_categoria_api, $edit_activo, $edit_moneda_fija_id, $edit_id);
     }
     $stmt->execute();
     header('Location: /admin/juegos');
@@ -200,6 +210,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_juego_submit'], 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nombre'], $_POST['descripcion'])) {
     $nombre = trim($_POST['nombre']);
     $descripcion = trim($_POST['descripcion']);
+    $slug = slugify($nombre);
     $moneda_fija_id = !empty($_POST['moneda_fija_id']) ? intval($_POST['moneda_fija_id']) : null;
     $popular = isset($_POST['popular']) ? 1 : 0;
     $categoria_api = trim((string) ($_POST['categoria_api'] ?? ''));
@@ -234,8 +245,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['nombre'], $_POST['des
             }
         }
     }
-    $stmt = $mysqli->prepare("INSERT INTO juegos (nombre, imagen, imagen_paquete, descripcion, moneda_fija_id, popular, api_free_fire, categoria_api, activo, orden) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param('ssssiiisii', $nombre, $imagen, $imagen_paquete, $descripcion, $moneda_fija_id, $popular, $api_free_fire, $categoria_api, $activo, $orden);
+    $stmt = $mysqli->prepare("INSERT INTO juegos (nombre, imagen, imagen_paquete, descripcion, slug, moneda_fija_id, popular, api_free_fire, categoria_api, activo, orden) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param('sssssiiisii', $nombre, $imagen, $imagen_paquete, $descripcion, $slug, $moneda_fija_id, $popular, $api_free_fire, $categoria_api, $activo, $orden);
     $stmt->execute();
     $juego_id = $mysqli->insert_id;
     // Características seleccionadas del select múltiple

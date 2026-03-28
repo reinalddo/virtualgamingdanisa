@@ -1,6 +1,7 @@
 <?php
 // Gestión de juegos: listar, crear, editar, eliminar
 require_once 'includes/db_connect.php';
+require_once 'includes/slugify.php';
 
 // Listar juegos
 function listar_juegos($mysqli) {
@@ -14,15 +15,17 @@ function listar_juegos($mysqli) {
 
 // Crear juego
 function crear_juego($mysqli, $nombre, $imagen, $descripcion, $moneda_fija_id = null) {
-    $stmt = $mysqli->prepare("INSERT INTO juegos (nombre, imagen, descripcion, moneda_fija_id) VALUES (?, ?, ?, ?)");
-    $stmt->bind_param('sssi', $nombre, $imagen, $descripcion, $moneda_fija_id);
+    $slug = slugify($nombre);
+    $stmt = $mysqli->prepare("INSERT INTO juegos (nombre, imagen, descripcion, slug, moneda_fija_id) VALUES (?, ?, ?, ?, ?)");
+    $stmt->bind_param('ssssi', $nombre, $imagen, $descripcion, $slug, $moneda_fija_id);
     return $stmt->execute();
 }
 
 // Editar juego
 function editar_juego($mysqli, $id, $nombre, $imagen, $descripcion, $moneda_fija_id = null) {
-    $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, imagen=?, descripcion=?, moneda_fija_id=? WHERE id=?");
-    $stmt->bind_param('sssii', $nombre, $imagen, $descripcion, $moneda_fija_id, $id);
+    $slug = slugify($nombre);
+    $stmt = $mysqli->prepare("UPDATE juegos SET nombre=?, imagen=?, descripcion=?, slug=?, moneda_fija_id=? WHERE id=?");
+    $stmt->bind_param('ssssii', $nombre, $imagen, $descripcion, $slug, $moneda_fija_id, $id);
     return $stmt->execute();
 }
 

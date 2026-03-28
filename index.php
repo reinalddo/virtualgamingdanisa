@@ -6,6 +6,7 @@ require_once __DIR__ . "/includes/db_connect.php";
 require_once __DIR__ . "/includes/store_config.php";
 require_once __DIR__ . "/includes/currency.php";
 require_once __DIR__ . "/includes/home_gallery.php";
+require_once __DIR__ . "/includes/slugify.php";
 currency_ensure_schema();
 $pageTitle = store_config_get('nombre_tienda', 'TVirtualGaming') . " | " . store_config_get('nombre_tienda_subtitulo', 'Tienda de monedas digitales');
 $startupPopupTabEnabled = store_config_get('inicio_popup_tab_habilitado', '1') === '1';
@@ -636,7 +637,7 @@ $accentMap = [
         <div class="mt-4 row row-cols-2 row-cols-sm-3 row-cols-lg-4 g-3">
           <?php foreach ($popularGames as $game): ?>
             <div class="col">
-              <a href="/juego/<?= urlencode($game['id']) ?>" class="store-game-card d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
+              <a href="<?= htmlspecialchars(game_route_path($game), ENT_QUOTES, 'UTF-8') ?>" class="store-game-card d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
                 <div class="position-relative overflow-hidden rounded-3" style="aspect-ratio:1/1;">
                   <img src="/<?= htmlspecialchars($game['imagen'] ?? '', ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($game['nombre'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="img-fluid w-100 h-100 object-fit-cover" style="aspect-ratio:1/1;" />
                   <span title="Popular" class="position-absolute top-0 end-0 text-success fs-4" style="text-shadow:0 0 4px #000;">★</span>
@@ -686,7 +687,7 @@ $accentMap = [
         <div class="mt-4 row row-cols-2 row-cols-sm-3 row-cols-lg-4 g-3">
           <?php foreach ($moreGames as $game): ?>
             <div class="col">
-              <a href="/juego/<?= urlencode($game['id']) ?>" class="store-game-card d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
+              <a href="<?= htmlspecialchars(game_route_path($game), ENT_QUOTES, 'UTF-8') ?>" class="store-game-card d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
                 <div class="position-relative overflow-hidden rounded-3" style="aspect-ratio:1/1;">
                   <img src="/<?= htmlspecialchars($game['imagen'] ?? '', ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($game['nombre'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="img-fluid w-100 h-100 object-fit-cover" style="aspect-ratio:1/1;" />
                   <?php if (!empty($game['popular'])): ?>

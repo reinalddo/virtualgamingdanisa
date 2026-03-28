@@ -2,6 +2,7 @@
 <?php
 require_once __DIR__ . "/includes/db_connect.php";
 require_once __DIR__ . "/includes/currency.php";
+require_once __DIR__ . "/includes/slugify.php";
 currency_ensure_schema();
 $pageTitle = "TVirtualGaming | Juegos";
 include __DIR__ . "/includes/header.php";
@@ -37,7 +38,7 @@ $allGames = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
         if ($paqCount == 0) continue;
       ?>
       <div class="col">
-        <a href="/juego/<?= urlencode($game['id']) ?>" class="store-game-card d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
+        <a href="<?= htmlspecialchars(game_route_path($game), ENT_QUOTES, 'UTF-8') ?>" class="store-game-card d-block rounded-4 border bg-dark p-2 h-100 text-decoration-none">
           <div class="position-relative overflow-hidden rounded-3" style="aspect-ratio:1/1;">
             <img src="/<?= htmlspecialchars($game['imagen'] ?? '', ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($game['nombre'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="img-fluid w-100 h-100 object-fit-cover" style="aspect-ratio:1/1;" />
             <?php if (!empty($game['popular'])): ?>

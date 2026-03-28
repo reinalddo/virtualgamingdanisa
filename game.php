@@ -5,6 +5,7 @@ require_once __DIR__ . "/includes/currency.php";
 require_once __DIR__ . "/includes/payment_methods.php";
 require_once __DIR__ . "/includes/recargas_api.php";
 require_once __DIR__ . "/includes/app_session.php";
+require_once __DIR__ . "/includes/slugify.php";
 currency_ensure_schema();
 $paymentSupportWhatsappBase = store_config_whatsapp_link(store_config_get('whatsapp', ''));
 $loggedUserEmail = '';
@@ -16,15 +17,21 @@ payment_methods_ensure_table();
 $paymentMethodsByCurrency = payment_methods_active_by_currency();
 $game = null;
 $requestedGame = isset($_GET['slug']) || isset($_GET['id']);
+$requestedSlugSegment = trim((string) ($_GET['requested_slug'] ?? ''));
+$requestedSlugSegment = $requestedSlugSegment !== '' ? slugify($requestedSlugSegment) : '';
+if ($requestedSlugSegment === 'n-a') {
+  $requestedSlugSegment = '';
+}
 if (isset($_GET['slug'])) {
-  $slug = strtolower(trim($_GET['slug']));
-  $slug = preg_replace('/[^a-z0-9-]/', '', $slug);
-  $stmt = $mysqli->prepare("SELECT * FROM juegos WHERE slug=? AND COALESCE(activo, 1) = 1 LIMIT 1");
-  $stmt->bind_param('s', $slug);
-  $stmt->execute();
-  $res = $stmt->get_result();
-  $game = $res->fetch_assoc();
-  $stmt->close();
+  $slug = slugify((string) $_GET['slug']);
+  if ($slug !== 'n-a') {
+    $stmt = $mysqli->prepare("SELECT * FROM juegos WHERE slug=? AND COALESCE(activo, 1) = 1 ORDER BY id ASC LIMIT 1");
+    $stmt->bind_param('s', $slug);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $game = $res->fetch_assoc();
+    $stmt->close();
+  }
 } elseif (isset($_GET['id'])) {
   $id = intval($_GET['id']);
   $stmt = $mysqli->prepare("SELECT * FROM juegos WHERE id=? AND COALESCE(activo, 1) = 1 LIMIT 1");
@@ -42,6 +49,16 @@ if (!$game && !$requestedGame) {
 if (!$game) {
   die('Juego no encontrado.');
 }
+
+if ($requestedGame) {
+  $canonicalSlug = game_resolve_slug($game);
+  $requiresCanonicalRedirect = isset($_GET['slug']) || $requestedSlugSegment !== $canonicalSlug;
+  if ($requiresCanonicalRedirect) {
+    header('Location: ' . game_route_path($game), true, 301);
+    exit;
+  }
+}
+
 $scriptDir = str_replace('\\', '/', dirname((string) ($_SERVER['SCRIPT_NAME'] ?? '/')));
 if ($scriptDir === '/' || $scriptDir === '.') {
   $scriptDir = '';
