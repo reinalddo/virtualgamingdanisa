@@ -66,14 +66,14 @@ if (!function_exists('recharge_notifications_mask_user_label')) {
 
 if (!function_exists('recharge_notifications_recharge_label')) {
     function recharge_notifications_recharge_label(array $order): string {
-        $amountLabel = trim((string) ($order['paquete_cantidad'] ?? ''));
-        if ($amountLabel !== '') {
-            return $amountLabel;
-        }
-
         $packageName = trim((string) ($order['paquete_nombre'] ?? ''));
         if ($packageName !== '') {
             return $packageName;
+        }
+
+        $amountLabel = trim((string) ($order['paquete_cantidad'] ?? ''));
+        if ($amountLabel !== '') {
+            return $amountLabel;
         }
 
         return 'una recarga';
